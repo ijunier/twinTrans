@@ -31,10 +31,7 @@ def generate_run_follow_promoter(modelP, simuP):
     nextevent2iter["b"] = int(Z / modelP.coarse_g.tau_0)
 
     write_follow_promoter(traj, None, modelP, simuP, header=True)
-    while (
-        traj.niter < simuP.Niterations
-        and traj.Ntranscripts < simuP.Ntranscripts_max
-    ):
+    while traj.niter < simuP.Niterations and traj.Ntranscripts < simuP.Ntranscripts_max:
         write_follow_promoter(traj, RNAP_list, modelP, simuP)
 
         # Binding
@@ -77,10 +74,7 @@ def generate_run_multiple_transcrtipts(modelP, simuP):
     nextevent2iter["b"] = int(Z / modelP.coarse_g.tau_0)
 
     write_transcripts_on_the_fly(traj, simuP, header=True)
-    while (
-        traj.niter < simuP.Niterations
-        and traj.Ntranscripts < simuP.Ntranscripts_max
-    ):
+    while traj.niter < simuP.Niterations and traj.Ntranscripts < simuP.Ntranscripts_max:
         verbosing(simuP, traj, RNAP_list)
 
         # Binding
@@ -116,7 +110,8 @@ def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
 
     if (
         not RNAP_list
-        or RNAP_list[-1].X > modelP.gene.rnap_xi + modelP.rnap.excluded_length_elongation
+        or RNAP_list[-1].X
+        > modelP.gene.rnap_xi + modelP.rnap.excluded_length_elongation
     ):
         # promoter is free => binding occurs!
 
@@ -138,7 +133,7 @@ def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
         rnap.X = modelP.gene.rnap_xi
         rnap.Lc_lk = modelP.gene.Lc_lk_rnap_xi
 
-        # SIGMA PROPERTIES                
+        # SIGMA PROPERTIES
         if not RNAP_list:
             # a single RNAP => topological properties dictated by the entire topological domain
             rnap.sigma = (
@@ -196,7 +191,7 @@ def oc_formation_stage(modelP, RNAP_list, traj, nextevent2iter):
         )  # at least niter + 1
     else:
         # sigma is above threshold: OC formation has failed
-        
+
         # NEXT OC FORMATION TRIAL
         Z = np.random.exponential(scale=modelP.promoter.ko_s, size=None)
         nextevent2iter["oc"] = np.max(
@@ -238,7 +233,7 @@ def escape_stage(modelP, RNAP_list, traj):
 
 def topo_stage(modelP, RNAP_list):
     """TopoI and gyrase activity"""
-    
+
     if RNAP_list:
         topo_stage_RNAPpresent(modelP, RNAP_list)
     else:
@@ -337,12 +332,13 @@ def topo_stage_RNAPabsent(modelP):
 
     return
 
+
 # Elementary generations of linking numbers
 def DLk_TopoI(domain_length_topo, rnap, modelP, dna="up"):
     """
-        TopoI activity associated with an RNAP
-        - worked for both upstream and downstream the "RNAP convoy"
-        - not active if sigma > sigma_active
+    TopoI activity associated with an RNAP
+    - worked for both upstream and downstream the "RNAP convoy"
+    - not active if sigma > sigma_active
     """
 
     if dna == "up":
@@ -364,9 +360,9 @@ def DLk_TopoI(domain_length_topo, rnap, modelP, dna="up"):
 
 def DLk_Gyrase(domain_length_topo, rnap, modelP, dna="up"):
     """
-        Gyrase activity associated with an RNAP
-        - worked for both upstream and downstream the "RNAP convoy"
-        - not active if sigma < sigma_stall
+    Gyrase activity associated with an RNAP
+    - worked for both upstream and downstream the "RNAP convoy"
+    - not active if sigma < sigma_stall
     """
 
     if dna == "up":
@@ -389,8 +385,8 @@ def DLk_Gyrase(domain_length_topo, rnap, modelP, dna="up"):
 
 def DLk_TopoI_noRNAP(domain_length_topo, modelP, sigma):
     """
-        TopoI activity in the absence of any RNAP => sigma is specified as an argument
-        - not active if sigma > sigma_active
+    TopoI activity in the absence of any RNAP => sigma is specified as an argument
+    - not active if sigma > sigma_active
     """
 
     if sigma > modelP.topoI.sigma_active:
@@ -401,8 +397,8 @@ def DLk_TopoI_noRNAP(domain_length_topo, modelP, sigma):
 
 def DLk_Gyrase_noRNAP(domain_length_topo, modelP, sigma):
     """
-        Gyrase activity in the absence of any RNAP => sigma is specified as an argument
-        - not active if sigma > sigma_active
+    Gyrase activity in the absence of any RNAP => sigma is specified as an argument
+    - not active if sigma > sigma_active
     """
 
     if sigma < modelP.rnap.sigma_stall:
@@ -435,7 +431,7 @@ def elongation_stage(modelP, RNAP_list):
 
 # Translocations and their topological consequences
 def RNAP_translocation(ix_rnap, RNAP_list, modelP):
-    
+
     if (
         not RNAP_list[ix_rnap].t_elongating
         or not RNAP_list[ix_rnap].sigma >= modelP.rnap.sigma_stall
@@ -455,17 +451,22 @@ def RNAP_translocation(ix_rnap, RNAP_list, modelP):
     RNAP_list[ix_rnap].sigma_down = _sigma_down(RNAP_list[ix_rnap], modelP)
 
     # UPDATING DOWNSTREAM RNAP
-    if ix_rnap > 0:        
+    if ix_rnap > 0:
         RNAP_list[ix_rnap - 1].Lc_lk -= modelP.coarse_g.dLk
         RNAP_list[ix_rnap - 1].sigma = _sigma(RNAP_list[ix_rnap - 1], modelP)
 
     # UPDATING UPSTREAM RNAP
     if ix_rnap < len(RNAP_list) - 1:
         if RNAP_list[ix_rnap + 1].t_elongating:
-            # the RNAP is elongating        
+            # the RNAP is elongating
             RNAP_list[ix_rnap + 1].Lc_down_lk += modelP.coarse_g.dLk
-            RNAP_list[ix_rnap + 1].sigma_down = _sigma_down(RNAP_list[ix_rnap + 1], modelP)
-        elif ix_rnap == len(RNAP_list) - 2 and not RNAP_list[len(RNAP_list) - 1].t_elongating:
+            RNAP_list[ix_rnap + 1].sigma_down = _sigma_down(
+                RNAP_list[ix_rnap + 1], modelP
+            )
+        elif (
+            ix_rnap == len(RNAP_list) - 2
+            and not RNAP_list[len(RNAP_list) - 1].t_elongating
+        ):
             # the RNAP is NON-elongating
             RNAP_list[-1].sigma = RNAP_list[-2].sigma
             RNAP_list[-1].Lk = (1 + RNAP_list[-1].sigma) * RNAP_list[-1].Lc_lk
@@ -477,6 +478,7 @@ def RNAP_translocation(ix_rnap, RNAP_list, modelP):
             ].Lc_down_lk
 
     return
+
 
 def termination_stage(modelP, simuP, RNAP_list, traj):
     """Termination stage: transcript production by the most downstream RNAP"""
@@ -621,7 +623,7 @@ def write_statistics(traj, simuP):
 # I/O
 def output_variables(cmd, modelP, simuP):
     """writing out parameters and variables"""
-    
+
     with open(simuP.fo_out + "/param_var.txt", "w") as out:
         out.write(cmd + "\n")
 
