@@ -7,7 +7,7 @@ Implementation of the twin transcriptional-loop model
 
 The code runs on `Python 3.7`.
 
-#### Basic
+### Basic
 
 The most basic usage consists in running:
 
@@ -32,7 +32,7 @@ To specificy parameters such as those associated with the promoter ($k_b$, $k_o$
 
     bin/twin.py -h
 
-#### Promoter-following mode
+### Promoter-following mode
 
 To follow the topological properties at the promoter, use the option `-promfollow`
 
