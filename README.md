@@ -1,5 +1,5 @@
 # twinTrans
-Implementation of the twin transcriptional-loop model
+Python implementation of the twin transcriptional-loop model
 
 ---
 
