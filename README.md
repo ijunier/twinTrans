@@ -1,11 +1,11 @@
 # twinTrans
-Python implementation of the twin transcriptional-loop model
+Python implementation of the twin transcriptional-loop model using a Gillespie protocol
 
 ---
 
 ## Usage
 
-The code runs on `Python 3.7`.
+The code has been tested using `Python 3.7`.
 
 ### Basic
 
@@ -15,11 +15,12 @@ The most basic usage consists in running:
 bin/twin.py {results_directory}
 ```
 
-This will run a simulation with default parameters, generating two files in `{results_directory}`: 
+This will run a simulation with default parameters (lasting 2 min on a 3.1 GHz Intel Core i7). The outcome is composed of two files written out in `{results_directory}`: 
 
 - **param_var.txt**: parameters and variables (and their value) of the simulation 
-- **mean_properties.txt**: average value of various quantities of interest as a function of the real time:
+- **mean_properties.txt**: values of various quantities of interest (written every a fixed number of transcripts as speificied by `-Net` optional argument):
   - *transcripts_nb*: number of transcripts
+  - *time*: real time (in s)
   - *prod_rate*: production rate (= transcripts_nb/time)
   - *mean_prod_time*: average time separating two successive productions of a transcript (should be equal to 1/prod_rate)
   - *mean_bind_time*: average time separating two successive binding events

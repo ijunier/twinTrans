@@ -131,7 +131,7 @@ def parsing_cmd():
         dest="topoI_Lambda_s",
         type=float,
         help="specific rate of upstream TopoI activity (per s)",
-        default=0,
+        default=1,
     )
     parser.add_argument(
         "-sa",
@@ -156,8 +156,8 @@ def parsing_cmd():
         metavar="X",
         dest="gyrase_Lambda_s",
         type=float,
-        help="specific rate of downstream gyrase activity (per s)",
-        default=0,
+        help="specific rate (absolute value) of downstream gyrase activity (per s)",
+        default=2,
     )
 
     # DNA
@@ -177,7 +177,7 @@ def parsing_cmd():
         dest="simup_Niterations",
         type=int,
         help="maximum number of iterations",
-        default=1e10,
+        default=int(1e10),
     )
     parser.add_argument(
         "-Nt",
@@ -185,7 +185,7 @@ def parsing_cmd():
         dest="simup_Ntranscripts_max",
         type=int,
         help="maximum number of transcripts",
-        default=1e4,
+        default=int(1e4),
     )
     parser.add_argument(
         "-Net",
@@ -193,7 +193,7 @@ def parsing_cmd():
         dest="simup_Nevery_transcripts",
         type=int,
         help="writing out results every X",
-        default=1e3,
+        default=int(1e3),
     )
 
     # RESOLUTION
@@ -228,7 +228,7 @@ def parsing_cmd():
         dest="simup_verbose_every",
         type=int,
         help="verbose every X iterations (-verbose is required)",
-        default=1e3,
+        default=int(1e3),
     )
     parser.add_argument(
         "-rseed",

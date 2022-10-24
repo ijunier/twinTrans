@@ -32,5 +32,4 @@ f.output_variables(cmd, modelP, simuP)
 if simuP.promoter_to_follow:
     f.generate_run_follow_promoter(modelP, simuP)
 else:
-    traj = f.generate_run_multiple_transcrtipts(modelP, simuP)
-    f.write_statistics(traj, simuP)
+    f.generate_run_multiple_transcrtipts(modelP, simuP)

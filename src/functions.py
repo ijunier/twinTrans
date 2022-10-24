@@ -101,7 +101,7 @@ def generate_run_multiple_transcrtipts(modelP, simuP):
         traj.niter += 1
         traj.time = traj.niter * modelP.coarse_g.tau_0
 
-    return traj
+    return
 
 
 # Transcription stages
@@ -171,7 +171,6 @@ def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
 def oc_formation_stage(modelP, RNAP_list, traj, nextevent2iter):
     """OC formation if sigma <= threshold"""
 
-    traj.sigma_at_ocf.append(RNAP_list[-1].sigma)
     if RNAP_list[-1].sigma <= modelP.promoter.sigma_o:
         # sigma is below threshold: OC formation occurs!
 
@@ -585,17 +584,17 @@ def write_transcripts_on_the_fly(traj, simuP, header=False):
     if header:
         with open(fi, "w") as out:
             out.write(
-                "time\ttranscripts_np\tprod_rate\tmean_prod_time\tmean_bind_time\tmean_ocf_time\tmean_esc_time\tmean_init_time\tmean_elong_time\n"
+                "transcripts_nb\ttime\tprod_rate\tmean_prod_time\tmean_bind_time\tmean_ocf_time\tmean_esc_time\tmean_init_time\tmean_elong_time\n"
             )
         return
 
     with open(fi, "a") as out:
         prod_rate = traj.Ntranscripts / traj.time
         out.write(
-            "%f\t%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n"
+            "%d\t%f\t%f\t%f\t%f\t%f\t%f\t%f\t%f\n"
             % (
-                traj.time,
                 traj.Ntranscripts,
+                traj.time,
                 prod_rate,
                 traj.prod_times["mean"],
                 traj.b2b_times["mean"],
@@ -607,18 +606,6 @@ def write_transcripts_on_the_fly(traj, simuP, header=False):
         )
 
     return
-
-
-def write_statistics(traj, simuP):
-    """some statistics"""
-
-    if traj.sigma_at_ocf:
-        with open(simuP.fo_out + "/sigma_at_ocf_stage.txt", "w") as out:
-            for s in traj.sigma_at_ocf:
-                out.write("%f\n" % s)
-
-    return
-
 
 # I/O
 def output_variables(cmd, modelP, simuP):
