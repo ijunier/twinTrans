@@ -15,7 +15,7 @@ The most basic usage consists in running:
 bin/twin.py {results_directory}
 ```
 
-This will run a simulation with default parameters (lasting 2 min on a 3.1 GHz Intel Core i7). The outcome is composed of two files written out in `{results_directory}`: 
+This will run a simulation with default parameters (lasting $\sim$ 2 min on a 3.1 GHz Intel Core i7). The outcome is composed of two files written out in `{results_directory}`: 
 
 - **param_var.txt**: parameters and variables (and their value) of the simulation 
 - **mean_properties.txt**: values of various quantities of interest (written out every a fixed number of transcripts as specified by `-Net` optional argument):
