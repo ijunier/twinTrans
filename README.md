@@ -1,5 +1,8 @@
 # twinTrans
+[![DOI](https://zenodo.org/badge/551500834.svg)](https://zenodo.org/badge/latestdoi/551500834)
+
 Python implementation of the twin transcriptional-loop model using a Gillespie algorithm
+
 
 ---
 
