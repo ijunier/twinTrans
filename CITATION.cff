@@ -1,8 +1,8 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 authors:
-- family-names: "Ivan"
-  given-names: "Junier"
+- family-names: "Junier"
+  given-names: "Ivan"
   orcid: "https://orcid.org/0000-0002-3522-9599"
 title: "twinTrans: Python implementation of the twin transcriptional-loop model"
 version: v1.0.0
