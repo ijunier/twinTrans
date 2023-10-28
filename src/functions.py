@@ -3,9 +3,7 @@ import math
 from param_var import *
 
 """
-    Functions used by ../bin/twin.py
-    For lightness, only downstream quantities are referred to as _down
-    i.e., upstream quantities are NOT referred to as _up -- this might change in the future
+    Functions used by ../bin/twin.py    
 """
 
 # supercoiling densities

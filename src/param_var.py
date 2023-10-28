@@ -4,9 +4,7 @@ import numpy as np
 import shutil
 
 """
-    Parameters and variables used by ../bin/twin.py
-    For lightness, only downstream quantities are referred to as _down
-    i.e., upstream quantities are NOT referred to as _up -- this might change in the future
+    Parameters and variables used by ../bin/twin.py    
 """
 
 
@@ -269,7 +267,7 @@ class ModelParam:
     """Modelling parameters"""
 
     def __init__(self, args):
-        
+
         self.dna = self._DNA(args)
         self.gene = self._Gene(args, self.dna)
         self.promoter = self._Promoter(args)
