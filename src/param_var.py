@@ -206,15 +206,6 @@ def parsing_cmd():
         default=1,
     )
 
-    # DYNAMICS
-    parser.add_argument(
-        "-dyn",
-        choices=["up2down", "async", "down2up"],
-        dest="model_dyn",
-        help="types of dynamics for the stochastic updating",
-        default="async",
-    )
-
     # TESTING/DEBUGGING
     parser.add_argument(
         "-verbose",
@@ -278,13 +269,7 @@ class ModelParam:
     """Modelling parameters"""
 
     def __init__(self, args):
-
-        self.t_dyn = args.model_dyn
-        # dynamics types
-        # asynchronous: async (default)
-        # up2down: up2down (from upstream RNAP to downstream RNAP)
-        # down2up: down2up (from downstream RNAP to upstream RNAP)
-
+        
         self.dna = self._DNA(args)
         self.gene = self._Gene(args, self.dna)
         self.promoter = self._Promoter(args)
@@ -315,19 +300,21 @@ class ModelParam:
             # TSS position
             self.rnap_xi = self.tss - int(args.rnap_excluded_length / 2)
             # initial position of rnap at the promoter
-            self.Lc_lk_rnap_xi = self.rnap_xi / dna.n
-            # TSS distance to upstream barrier in units of linking humber
+            self.Lk0_rnap_xi = self.rnap_xi / dna.n
+            # TSS distance to upstream barrier in units of relaxed linking humber
 
             self.L = args.gene_L
             # gene length (in bp)
             self.Ldown = args.gene_Ldown
             # downstream distance to barrier (in bp)
 
-            self.Ldomain = self.tss + self.L + self.Ldown
+            self.term = self.tss + self.L
+            # location of termination 
+            self.L_domain = self.tss + self.L + self.Ldown
             # total domain length
-            self.Ldomain_lk_relaxed = self.Ldomain / dna.n
+            self.Lk0_domain = self.L_domain / dna.n
             # in unit of linking number in the relaxed state
-            self.Ldomain_lk = self.Ldomain_lk_relaxed
+            self.Lk_domain = self.Lk0_domain
             # current state
 
     class _Promoter:
@@ -409,13 +396,13 @@ class ModelParam:
 
             # TOPOI
             self.p_topoI_ns_per_bp = topoI.lambda_ns * self.tau_0
-            # maximal probability to non-specifically generate +1 Lk per bp
+            # mean number of non-specific +1 (Lk) events per bp => Poisson process
             self.p_topoI_s = np.min((topoI.Lambda_s * self.tau_0, 1))
             # probability to specifically generate it (~ at the promoter)
 
             # GYRASE
             self.p_gyrase_ns_per_bp = gyrase.lambda_ns * self.tau_0 / 2
-            # maximal probability to non-specifically generate -2 Lk per bp
+            # mean number of non-specific -2 (Lk) events per bp => Poisson process
             self.p_gyrase_s = np.min((gyrase.Lambda_s * self.tau_0 / 2, 1))
             # probability to specifically generate it (~ at the downstream RNAP)
 
@@ -447,25 +434,14 @@ class RNAP:
         self.X = 0
         # position in base pairs
 
-        # UPSTREAM QUANTITIES
-        # we drop "up" for lightness
-        self.Lc_lk = None
-        # upstream contour length in units of Lk
-        self.Lk = None
-        # upstream linking number
-        self.sigma = None
+        # UPSTREAM and DOWNSTREAM TOPOLOGICAL QUANTITIES
+        self.Lk0 = {'up':None, 'down':None}
+        # contour length in units of Lk (=relaxed linking number)
+        self.Lk = {'up':None, 'down':None}
+        # linking number
+        self.sigma = {'up':None, 'down':None}
         # corresponding supercoiling density
-        self.pstruct = None
-        # corresponding supercoiling density
-
-        # DOWNSTREAM QUANTITIES
-        self.Lc_down_lk = None
-        # downstream contour length in units of Lk
-        self.Lk_down = None
-        # downstream linking number
-        self.sigma_down = None
-        # corresponding supercoiling density
-
+        
 
 class Trajectory:
     def __init__(self):

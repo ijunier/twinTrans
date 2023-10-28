@@ -9,16 +9,11 @@ from param_var import *
 """
 
 # supercoiling densities
-def _sigma(rnap, modelP):
-    return (rnap.Lk - rnap.Lc_lk) / rnap.Lc_lk
-
-
-def _sigma_down(rnap, modelP):
-    return (rnap.Lk_down - rnap.Lc_down_lk) / rnap.Lc_down_lk
-
+def _sigma(rnap: RNAP, loc='up'):
+    return (rnap.Lk[loc] - rnap.Lk0[loc]) / rnap.Lk0[loc]
 
 # Simulation runs
-def generate_run_follow_promoter(modelP, simuP):
+def generate_run_follow_promoter(modelP: ModelParam, simuP: SimuParam):
 
     traj = Trajectory()
     RNAP_list = []
@@ -61,7 +56,7 @@ def generate_run_follow_promoter(modelP, simuP):
     return
 
 
-def generate_run_multiple_transcrtipts(modelP, simuP):
+def generate_run_multiple_transcrtipts(modelP: ModelParam, simuP: SimuParam):
 
     traj = Trajectory()
     RNAP_list = []
@@ -105,7 +100,7 @@ def generate_run_multiple_transcrtipts(modelP, simuP):
 
 
 # Transcription stages
-def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
+def binding_stage(modelP: ModelParam, RNAP_list, traj: Trajectory, nextevent2iter):
     """Binding of the RNAP at the promoter"""
 
     if (
@@ -131,24 +126,24 @@ def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
         rnap.tb = traj.time
         rnap.t_elongating = False
         rnap.X = modelP.gene.rnap_xi
-        rnap.Lc_lk = modelP.gene.Lc_lk_rnap_xi
+        rnap.Lk0['up'] = modelP.gene.Lk0_rnap_xi
 
         # SIGMA PROPERTIES
         if not RNAP_list:
             # a single RNAP => topological properties dictated by the entire topological domain
-            rnap.sigma = (
-                modelP.gene.Ldomain_lk - modelP.gene.Ldomain_lk_relaxed
-            ) / modelP.gene.Ldomain_lk_relaxed
-            rnap.Lc_down_lk = modelP.gene.Ldomain_lk_relaxed - modelP.gene.Lc_lk_rnap_xi
+            rnap.sigma['up'] = (
+                modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+            ) / modelP.gene.Lk0_domain
+            rnap.Lk0['down'] = modelP.gene.Lk0_domain - modelP.gene.Lk0_rnap_xi
         else:
             # multiple RNAP => topological properties dictated by the immediate downstream RNAP
-            rnap.sigma = RNAP_list[-1].sigma
-            rnap.Lc_down_lk = RNAP_list[-1].Lc_lk - rnap.Lc_lk
+            rnap.sigma['up'] = RNAP_list[-1].sigma['up']
+            rnap.Lk0['down'] = RNAP_list[-1].Lk0['up'] - rnap.Lk0['up']
 
-        rnap.Lk = (1 + rnap.sigma) * rnap.Lc_lk
+        rnap.Lk['up'] = (1 + rnap.sigma['up']) * rnap.Lk0['up']
 
-        rnap.sigma_down = rnap.sigma
-        rnap.Lk_down = (1 + rnap.sigma_down) * rnap.Lc_down_lk
+        rnap.sigma['down'] = rnap.sigma['up']
+        rnap.Lk['down'] = (1 + rnap.sigma['down']) * rnap.Lk0['down']
 
         # ADDING THE NEW RNAP
         RNAP_list.append(rnap)
@@ -168,10 +163,10 @@ def binding_stage(modelP, RNAP_list, traj, nextevent2iter):
     return
 
 
-def oc_formation_stage(modelP, RNAP_list, traj, nextevent2iter):
+def oc_formation_stage(modelP: ModelParam, RNAP_list, traj: Trajectory, nextevent2iter):
     """OC formation if sigma <= threshold"""
 
-    if RNAP_list[-1].sigma <= modelP.promoter.sigma_o:
+    if RNAP_list[-1].sigma['up'] <= modelP.promoter.sigma_o:
         # sigma is below threshold: OC formation occurs!
 
         RNAP_list[-1].tocf = traj.time
@@ -200,7 +195,7 @@ def oc_formation_stage(modelP, RNAP_list, traj, nextevent2iter):
     return
 
 
-def escape_stage(modelP, RNAP_list, traj):
+def escape_stage(modelP: ModelParam, RNAP_list, traj: Trajectory):
     """promoter escape => RNAP is now in elongating mode"""
 
     RNAP_list[-1].t_elongating = True
@@ -224,13 +219,13 @@ def escape_stage(modelP, RNAP_list, traj):
     # change Lk because the new elongating RNA becomes a barrier
     # one can actually check the conservation of the Lk
     if len(RNAP_list) > 1:
-        RNAP_list[-2].Lc_lk -= RNAP_list[-1].Lc_lk
-        RNAP_list[-2].Lk = (1 + RNAP_list[-2].sigma) * RNAP_list[-2].Lc_lk
+        RNAP_list[-2].Lk0['up'] -= RNAP_list[-1].Lk0['up']
+        RNAP_list[-2].Lk['up'] = (1 + RNAP_list[-2].sigma['up']) * RNAP_list[-2].Lk0['up']
 
     return
 
 
-def topo_stage(modelP, RNAP_list):
+def topo_stage(modelP: ModelParam, RNAP_list):
     """TopoI and gyrase activity"""
 
     if RNAP_list:
@@ -241,7 +236,7 @@ def topo_stage(modelP, RNAP_list):
     return
 
 
-def topo_stage_RNAPpresent(modelP, RNAP_list):
+def topo_stage_RNAPpresent(modelP: ModelParam, RNAP_list):
     """TopoI and gyrase activity in the presence of at least one DNA-bound RNAP"""
 
     # UPSTREAM
@@ -251,19 +246,19 @@ def topo_stage_RNAPpresent(modelP, RNAP_list):
         # the most upstream RNAP (at the promoter) is not a barrier
         if len(RNAP_list) == 1:
             # topoisomerases can act anywhere along the domain
-            domain_length_topo = modelP.gene.Ldomain
+            domain_length_topo = modelP.gene.L_domain
             DTopoI = DLk_TopoI(domain_length_topo, RNAP_list[-1], modelP)
             DGyrase = DLk_Gyrase(domain_length_topo, RNAP_list[-1], modelP)
         else:
             # the second RNAP is a barrier and we consider activity upstream
-            domain_length_topo = RNAP_list[-2].Lc_lk * modelP.dna.n
+            domain_length_topo = RNAP_list[-2].Lk0['up'] * modelP.dna.n
             DTopoI = DLk_TopoI(domain_length_topo, RNAP_list[-1], modelP)
-            # RNAP_list[-1] because RNAP_list[-1].sigma = RNAP_list[-2].sigma here
+            # RNAP_list[-1] because RNAP_list[-1].sigma['up'] = RNAP_list[-2].sigma['up'] here
             DGyrase = DLk_Gyrase(domain_length_topo, RNAP_list[-1], modelP)
-            # RNAP_list[-1] because RNAP_list[-1].sigma = RNAP_list[-2].sigma here
+            # RNAP_list[-1] because RNAP_list[-1].sigma['up'] = RNAP_list[-2].sigma['up'] here
     else:
         # the most upstream RNAP is a barrier and we consider activity upstream
-        domain_length_topo = RNAP_list[-1].Lc_lk * modelP.dna.n
+        domain_length_topo = RNAP_list[-1].Lk0['up'] * modelP.dna.n
         DTopoI = DLk_TopoI(domain_length_topo, RNAP_list[-1], modelP)
         DGyrase = DLk_Gyrase(domain_length_topo, RNAP_list[-1], modelP)
 
@@ -273,79 +268,74 @@ def topo_stage_RNAPpresent(modelP, RNAP_list):
         DTopoI_spec = DLk_TopoI("spec", RNAP_list[-1], modelP)
 
     if DTopoI != 0 or DGyrase != 0 or DTopoI_spec != 0:  # updating topo properties
-        modelP.gene.Ldomain_lk += DTopoI + DGyrase + DTopoI_spec
+        modelP.gene.Lk_domain += DTopoI + DGyrase + DTopoI_spec
 
         if not RNAP_list[-1].t_elongating:
             # properties of non-elongating RNAP are dictated by its downstream RNAP (if it exists)
             if len(RNAP_list) == 1:
-                RNAP_list[0].sigma = (
-                    modelP.gene.Ldomain_lk - modelP.gene.Ldomain_lk_relaxed
-                ) / modelP.gene.Ldomain_lk_relaxed
+                RNAP_list[0].sigma['up'] = (
+                    modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+                ) / modelP.gene.Lk0_domain
             else:
-                RNAP_list[-2].Lk += DTopoI + DGyrase + DTopoI_spec
-                RNAP_list[-2].sigma = _sigma(RNAP_list[-2], modelP)
-                RNAP_list[-1].sigma = RNAP_list[-2].sigma
+                RNAP_list[-2].Lk['up'] += DTopoI + DGyrase + DTopoI_spec
+                RNAP_list[-2].sigma['up'] = _sigma(RNAP_list[-2], 'up')
+                RNAP_list[-1].sigma['up'] = RNAP_list[-2].sigma['up']
 
-            RNAP_list[-1].Lk = (1 + RNAP_list[-1].sigma) * RNAP_list[-1].Lc_lk
-            RNAP_list[-1].sigma_down = RNAP_list[
+            RNAP_list[-1].Lk['up'] = (1 + RNAP_list[-1].sigma['up']) * RNAP_list[-1].Lk0['up']
+            RNAP_list[-1].sigma['down'] = RNAP_list[
                 -1
-            ].sigma  # because RNAP is not a barrier
-            RNAP_list[-1].Lk_down = (1 + RNAP_list[-1].sigma_down) * RNAP_list[
+            ].sigma['up']  # because RNAP is not a barrier
+            RNAP_list[-1].Lk['down'] = (1 + RNAP_list[-1].sigma['down']) * RNAP_list[
                 -1
-            ].Lc_down_lk
+            ].Lk0['down']
         else:
             # RNAP is a barrier
-            RNAP_list[-1].Lk += DTopoI + DGyrase + DTopoI_spec
-            RNAP_list[-1].sigma = _sigma(RNAP_list[-1], modelP)
+            RNAP_list[-1].Lk['up'] += DTopoI + DGyrase + DTopoI_spec
+            RNAP_list[-1].sigma['up'] = _sigma(RNAP_list[-1], 'up')
 
     # DOWNSTREAM
     DTopoI_down, DGyrase_down, DGyrase_spec = 0, 0, 0
     if RNAP_list[0].t_elongating:
         # if non elongating, this means a single non-elongating RNAP => treated at the upstream level
-        domain_length_topo = RNAP_list[0].Lc_down_lk * modelP.dna.n
-        DTopoI_down = DLk_TopoI(domain_length_topo, RNAP_list[0], modelP, dna="down")
-        DGyrase_down = DLk_Gyrase(domain_length_topo, RNAP_list[0], modelP, dna="down")
-        DGyrase_spec = DLk_Gyrase("spec", RNAP_list[0], modelP, dna="down")
+        domain_length_topo = RNAP_list[0].Lk0['down'] * modelP.dna.n
+        DTopoI_down = DLk_TopoI(domain_length_topo, RNAP_list[0], modelP, loc="down")
+        DGyrase_down = DLk_Gyrase(domain_length_topo, RNAP_list[0], modelP, loc="down")
+        DGyrase_spec = DLk_Gyrase("spec", RNAP_list[0], modelP, loc="down")
 
-        modelP.gene.Ldomain_lk += DTopoI_down + DGyrase_down + DGyrase_spec
-        RNAP_list[0].Lk_down += DTopoI_down + DGyrase_down + DGyrase_spec
-        RNAP_list[0].sigma_down = _sigma_down(RNAP_list[0], modelP)
+        modelP.gene.Lk_domain += DTopoI_down + DGyrase_down + DGyrase_spec
+        RNAP_list[0].Lk['down'] += DTopoI_down + DGyrase_down + DGyrase_spec
+        RNAP_list[0].sigma['down'] = _sigma(RNAP_list[0], 'down')
 
     return
 
 
-def topo_stage_RNAPabsent(modelP):
+def topo_stage_RNAPabsent(modelP: ModelParam):
     """TopoI and gyrase activity in the absence of RNAP"""
 
     # TopoI
     sigma = (
-        modelP.gene.Ldomain_lk - modelP.gene.Ldomain_lk_relaxed
-    ) / modelP.gene.Ldomain_lk_relaxed
-    modelP.gene.Ldomain_lk += DLk_TopoI_noRNAP(modelP.gene.Ldomain, modelP, sigma)
+        modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+    ) / modelP.gene.Lk0_domain
+    modelP.gene.Lk_domain += DLk_TopoI_noRNAP(modelP.gene.L_domain, modelP, sigma)
 
     # gyrase
     sigma = (
-        modelP.gene.Ldomain_lk - modelP.gene.Ldomain_lk_relaxed
-    ) / modelP.gene.Ldomain_lk_relaxed
-    modelP.gene.Ldomain_lk += DLk_Gyrase_noRNAP(modelP.gene.Ldomain, modelP, sigma)
+        modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+    ) / modelP.gene.Lk0_domain
+    modelP.gene.Lk_domain += DLk_Gyrase_noRNAP(modelP.gene.L_domain, modelP, sigma)
 
     return
 
 
 # Elementary generations of linking numbers
-def DLk_TopoI(domain_length_topo, rnap, modelP, dna="up"):
+def DLk_TopoI(domain_length_topo, rnap: RNAP, modelP: ModelParam, loc="up"):
     """
     TopoI activity associated with an RNAP
     - worked for both upstream and downstream the "RNAP convoy"
     - not active if sigma > sigma_active
     """
 
-    if dna == "up":
-        sigma = rnap.sigma
-    else:
-        sigma = rnap.sigma_down
-
-    if sigma > modelP.topoI.sigma_active:
+    if rnap.sigma[loc] > modelP.topoI.sigma_active:
         return 0
     else:
         if domain_length_topo != "spec":
@@ -357,19 +347,14 @@ def DLk_TopoI(domain_length_topo, rnap, modelP, dna="up"):
             return np.random.uniform() <= modelP.coarse_g.p_topoI_s
 
 
-def DLk_Gyrase(domain_length_topo, rnap, modelP, dna="up"):
+def DLk_Gyrase(domain_length_topo, rnap: RNAP, modelP: ModelParam, loc="up"):
     """
     Gyrase activity associated with an RNAP
     - worked for both upstream and downstream the "RNAP convoy"
     - not active if sigma < sigma_stall
     """
 
-    if dna == "up":
-        sigma = rnap.sigma
-    else:
-        sigma = rnap.sigma_down
-
-    if sigma < modelP.rnap.sigma_stall:
+    if rnap.sigma[loc] < modelP.rnap.sigma_stall:
         # RNAP stalling torque is the gyrase threshold
         return 0
     else:
@@ -382,7 +367,7 @@ def DLk_Gyrase(domain_length_topo, rnap, modelP, dna="up"):
             return -2 * (np.random.uniform() <= modelP.coarse_g.p_gyrase_s)
 
 
-def DLk_TopoI_noRNAP(domain_length_topo, modelP, sigma):
+def DLk_TopoI_noRNAP(domain_length_topo, modelP: ModelParam, sigma):
     """
     TopoI activity in the absence of any RNAP => sigma is specified as an argument
     - not active if sigma > sigma_active
@@ -394,14 +379,14 @@ def DLk_TopoI_noRNAP(domain_length_topo, modelP, sigma):
         return np.random.poisson(modelP.coarse_g.p_topoI_ns_per_bp * domain_length_topo)
 
 
-def DLk_Gyrase_noRNAP(domain_length_topo, modelP, sigma):
+def DLk_Gyrase_noRNAP(domain_length_topo, modelP: ModelParam, sigma):
     """
     Gyrase activity in the absence of any RNAP => sigma is specified as an argument
     - not active if sigma > sigma_active
     """
 
     if sigma < modelP.rnap.sigma_stall:
-        # stalling torque is the gyrase threshold
+        # stalling torque is the gyrase threshold (not 0, otherwsie, we may be stuck if we start from sigma = 0)
         return 0
     else:
         return -2 * np.random.poisson(
@@ -409,18 +394,12 @@ def DLk_Gyrase_noRNAP(domain_length_topo, modelP, sigma):
         )
 
 
-def elongation_stage(modelP, RNAP_list):
+def elongation_stage(modelP: ModelParam, RNAP_list):
     """RNAPs translocation"""
 
     if RNAP_list:
         ix_ = np.arange(len(RNAP_list))
-
-        if modelP.t_dyn == "async":
-            np.random.shuffle(ix_)
-        elif modelP.t_dyn == "up2down":
-            ix_ = ix_[::-1]
-        elif modelP.t_dyn != "down2up":
-            sys.exit("Error with modelP.t_dyn, which currently is = %s" % modelP.t_dyn)
+        np.random.shuffle(ix_)
 
         for ix_rnap in ix_:
             RNAP_translocation(ix_rnap, RNAP_list, modelP)
@@ -429,12 +408,12 @@ def elongation_stage(modelP, RNAP_list):
 
 
 # Translocations and their topological consequences
-def RNAP_translocation(ix_rnap, RNAP_list, modelP):
+def RNAP_translocation(ix_rnap, RNAP_list, modelP: ModelParam):
 
     if (
         not RNAP_list[ix_rnap].t_elongating
-        or not RNAP_list[ix_rnap].sigma >= modelP.rnap.sigma_stall
-        or not RNAP_list[ix_rnap].sigma_down <= np.abs(modelP.rnap.sigma_stall)
+        or not RNAP_list[ix_rnap].sigma['up'] >= modelP.rnap.sigma_stall
+        or not RNAP_list[ix_rnap].sigma['down'] <= np.abs(modelP.rnap.sigma_stall)
     ):
         # not elongating or beyond sigma_stall = no translocation
         return
@@ -443,46 +422,46 @@ def RNAP_translocation(ix_rnap, RNAP_list, modelP):
     # Rem2: no constrain on one RNAP overtaking another one (supercoiling constraints do the job)
 
     RNAP_list[ix_rnap].X += modelP.coarse_g.dx
-    RNAP_list[ix_rnap].Lc_lk += modelP.coarse_g.dLk
-    RNAP_list[ix_rnap].sigma = _sigma(RNAP_list[ix_rnap], modelP)
+    RNAP_list[ix_rnap].Lk0['up'] += modelP.coarse_g.dLk
+    RNAP_list[ix_rnap].sigma['up'] = _sigma(RNAP_list[ix_rnap], 'up')
 
-    RNAP_list[ix_rnap].Lc_down_lk -= modelP.coarse_g.dLk
-    RNAP_list[ix_rnap].sigma_down = _sigma_down(RNAP_list[ix_rnap], modelP)
+    RNAP_list[ix_rnap].Lk0['down'] -= modelP.coarse_g.dLk
+    RNAP_list[ix_rnap].sigma['down'] = _sigma(RNAP_list[ix_rnap], 'down')
 
     # UPDATING DOWNSTREAM RNAP
     if ix_rnap > 0:
-        RNAP_list[ix_rnap - 1].Lc_lk -= modelP.coarse_g.dLk
-        RNAP_list[ix_rnap - 1].sigma = _sigma(RNAP_list[ix_rnap - 1], modelP)
+        RNAP_list[ix_rnap - 1].Lk0['up'] -= modelP.coarse_g.dLk
+        RNAP_list[ix_rnap - 1].sigma['up'] = _sigma(RNAP_list[ix_rnap - 1], 'up')
 
     # UPDATING UPSTREAM RNAP
     if ix_rnap < len(RNAP_list) - 1:
         if RNAP_list[ix_rnap + 1].t_elongating:
             # the RNAP is elongating
-            RNAP_list[ix_rnap + 1].Lc_down_lk += modelP.coarse_g.dLk
-            RNAP_list[ix_rnap + 1].sigma_down = _sigma_down(
-                RNAP_list[ix_rnap + 1], modelP
+            RNAP_list[ix_rnap + 1].Lk0['down'] += modelP.coarse_g.dLk
+            RNAP_list[ix_rnap + 1].sigma['down'] = _sigma(
+                RNAP_list[ix_rnap + 1], 'down'
             )
         elif (
             ix_rnap == len(RNAP_list) - 2
             and not RNAP_list[len(RNAP_list) - 1].t_elongating
         ):
             # the RNAP is NON-elongating
-            RNAP_list[-1].sigma = RNAP_list[-2].sigma
-            RNAP_list[-1].Lk = (1 + RNAP_list[-1].sigma) * RNAP_list[-1].Lc_lk
+            RNAP_list[-1].sigma['up'] = RNAP_list[-2].sigma['up']
+            RNAP_list[-1].Lk['up'] = (1 + RNAP_list[-1].sigma['up']) * RNAP_list[-1].Lk0['up']
 
-            RNAP_list[-1].Lc_down_lk += modelP.coarse_g.dLk
-            RNAP_list[-1].sigma_down = RNAP_list[-2].sigma
-            RNAP_list[-1].Lk_down = (1 + RNAP_list[-1].sigma_down) * RNAP_list[
+            RNAP_list[-1].Lk0['down'] += modelP.coarse_g.dLk
+            RNAP_list[-1].sigma['down'] = RNAP_list[-2].sigma['up']
+            RNAP_list[-1].Lk['down'] = (1 + RNAP_list[-1].sigma['down']) * RNAP_list[
                 -1
-            ].Lc_down_lk
+            ].Lk0['down']
 
     return
 
 
-def termination_stage(modelP, simuP, RNAP_list, traj):
+def termination_stage(modelP: ModelParam, simuP: SimuParam, RNAP_list, traj: Trajectory):
     """Termination stage: transcript production by the most downstream RNAP"""
 
-    if RNAP_list and RNAP_list[0].X >= modelP.gene.tss + modelP.gene.L:
+    if RNAP_list and RNAP_list[0].X >= modelP.gene.term:
         traj.Ntranscripts += 1
 
         # ELONGATION TIME
@@ -503,7 +482,24 @@ def termination_stage(modelP, simuP, RNAP_list, traj):
             traj.prod_times["n"] += 1
         traj.time_last_prod = traj.time
 
-        # TRANSCRIPT TERMINATION => RNAP REMOVAL
+        # TRANSCRIPT TERMINATION
+        # 1. We update the upstream RNAP, if it exists        
+        if len(RNAP_list) > 1: # at least 2 RNAPs: upating of the upstream RNAP (index = 1)
+            RNAP_list[1].Lk0['down'] += RNAP_list[0].Lk0['down']
+            if RNAP_list[1].t_elongating:
+                # only downstream properties are updated                
+                RNAP_list[1].Lk['down'] += RNAP_list[0].Lk['down']
+                RNAP_list[1].sigma['down'] = _sigma(RNAP_list[1], 'down')
+            else:
+                # both upstrean and dowsntream properties are updtaed from sigma of the domain
+                RNAP_list[1].sigma['up'] = (
+                    modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+                ) / modelP.gene.Lk0_domain
+                RNAP_list[1].Lk['up'] = (1 + RNAP_list[1].sigma['up']) * RNAP_list[1].Lk0['up']
+
+                RNAP_list[1].sigma['down'] = RNAP_list[1].sigma['up']
+                RNAP_list[1].Lk['down'] = (1 + RNAP_list[1].sigma['down']) * RNAP_list[1].Lk0['down']
+        # 2: We remove the RNAP
         del RNAP_list[0]
 
         if not traj.Ntranscripts % simuP.Nevery_transcripts:
@@ -513,7 +509,7 @@ def termination_stage(modelP, simuP, RNAP_list, traj):
 
 
 # I/O
-def verbosing(simuP, traj, RNAP_list):
+def verbosing(simuP: SimuParam, traj: Trajectory, RNAP_list):
     """some info to STDOUT (verbosing mode, e.g., for debugging)"""
 
     if simuP.verbose and not traj.niter % simuP.verbose_every:
@@ -525,8 +521,8 @@ def verbosing(simuP, traj, RNAP_list):
                     traj.niter,
                     traj.Ntranscripts,
                     len(RNAP_list),
-                    RNAP_list[-1].sigma,
-                    RNAP_list[-1].sigma_down,
+                    RNAP_list[-1].sigma['up'],
+                    RNAP_list[-1].sigma['down'],
                     end="\r",
                 )
             else:
@@ -534,21 +530,21 @@ def verbosing(simuP, traj, RNAP_list):
                     traj.niter,
                     traj.Ntranscripts,
                     len(RNAP_list),
-                    RNAP_list[-1].sigma,
-                    RNAP_list[-1].sigma_down,
+                    RNAP_list[-1].sigma['up'],
+                    RNAP_list[-1].sigma['down'],
                     RNAP_list[-1].X,
                     RNAP_list[-1].t_elongating,
-                    RNAP_list[-2].sigma,
-                    RNAP_list[-2].sigma_down,
+                    RNAP_list[-2].sigma['up'],
+                    RNAP_list[-2].sigma['down'],
                     RNAP_list[-2].X,
                     RNAP_list[-2].t_elongating,
-                    RNAP_list[0].sigma_down,
+                    RNAP_list[0].sigma['down'],
                     RNAP_list[0].X,
                     end="\r",
                 )
 
 
-def write_follow_promoter(traj, RNAP_list, modelP, simuP, header=False):
+def write_follow_promoter(traj: Trajectory, RNAP_list, modelP: ModelParam, simuP: SimuParam, header=False):
     """promoter properties"""
 
     fi = simuP.fo_out + "/traj_promoter.txt"
@@ -560,11 +556,11 @@ def write_follow_promoter(traj, RNAP_list, modelP, simuP, header=False):
 
     with open(fi, "a") as out:
         if len(RNAP_list) > 0:
-            sigma = RNAP_list[-1].sigma
+            sigma = RNAP_list[-1].sigma['up']
         else:
             sigma = (
-                modelP.gene.Ldomain_lk - modelP.gene.Ldomain_lk_relaxed
-            ) / modelP.gene.Ldomain_lk_relaxed
+                modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+            ) / modelP.gene.Lk0_domain
         out.write(
             "%s\t%.5f\t%d\n"
             % (
@@ -576,7 +572,7 @@ def write_follow_promoter(traj, RNAP_list, modelP, simuP, header=False):
     return
 
 
-def write_transcripts_on_the_fly(traj, simuP, header=False):
+def write_transcripts_on_the_fly(traj: Trajectory, simuP: SimuParam, header=False):
     """mean properties for every stage of the transcription process"""
 
     fi = simuP.fo_out + "/mean_properties.txt"
@@ -608,7 +604,7 @@ def write_transcripts_on_the_fly(traj, simuP, header=False):
     return
 
 # I/O
-def output_variables(cmd, modelP, simuP):
+def output_variables(cmd, modelP: ModelParam, simuP: SimuParam):
     """writing out parameters and variables"""
 
     with open(simuP.fo_out + "/param_var.txt", "w") as out:
