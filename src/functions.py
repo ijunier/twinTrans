@@ -507,7 +507,6 @@ def termination_stage(modelP: ModelParam, simuP: SimuParam, RNAP_list, traj: Tra
 
     return
 
-
 # I/O
 def verbosing(simuP: SimuParam, traj: Trajectory, RNAP_list):
     """some info to STDOUT (verbosing mode, e.g., for debugging)"""
