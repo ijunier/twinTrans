@@ -85,7 +85,7 @@ def parsing_cmd():
         dest="promoter_ke",
         type=float,
         help="OC escape rate (per s)",
-        default=1,
+        default=100,
     )
 
     # RNAP
