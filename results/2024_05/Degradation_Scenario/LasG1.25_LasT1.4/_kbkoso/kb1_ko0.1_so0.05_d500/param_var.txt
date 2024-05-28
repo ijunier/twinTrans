@@ -1,0 +1,85 @@
+/home/junieri/twinTrans/bin/twin.py -LasG 1.25 -LasT 1.4 -kb 1 -ko 0.1 -so -0.05 -tss 500 -Ld 500 -f /home/junieri/twinTrans/results/2024_05/Degradation_Scenario/LasG1.25_LasT1.4/_kbkoso/kb1_ko0.1_so0.05_d500
+
+###########
+# General #
+###########
+dna	<param_var.ModelParam._DNA object at 0x7fb85794ffd0>
+gene	<param_var.ModelParam._Gene object at 0x7fb8576bc160>
+promoter	<param_var.ModelParam._Promoter object at 0x7fb8576bc190>
+rnap	<param_var.ModelParam._RNAP object at 0x7fb8576bc1c0>
+topoI	<param_var.ModelParam._TopoI object at 0x7fb8576bc130>
+gyrase	<param_var.ModelParam._Gyrase object at 0x7fb8576bc0a0>
+coarse_g	<param_var.ModelParam._CoarseGraining object at 0x7fb8576bc0d0>
+
+########
+# Gene #
+########
+tss	500
+rnap_xi	485
+Lk0_rnap_xi	46.19047619047619
+L	900
+Ldown	500
+term	1400
+L_domain	1900
+Lk0_domain	180.95238095238096
+Lk_domain	180.95238095238096
+
+############
+# Promoter #
+############
+kb	1.0
+kb_s	1.0
+ko	0.1
+ko_s	10.0
+sigma_o	-0.05
+ke	100
+ke_s	0.01
+
+########
+# RNAP #
+########
+excluded_length_elongation	30
+vm	25
+torque_stall	18.5
+sigma_stall	-0.06166666666666667
+
+#########
+# TopoI #
+#########
+sigma_active	-0.05
+lambda_ns	0.0001
+Lambda_s	1.4
+
+##########
+# Gyrase #
+##########
+lambda_ns	0.0001
+Lambda_s	1.25
+
+#######
+# DNA #
+#######
+n	10.5
+A	300
+
+###################
+# Coarse graining #
+###################
+dx	1
+dLk	0.09523809523809523
+tau_0	0.04
+p_topoI_ns_per_bp	4.000000000000001e-06
+p_topoI_s	0.055999999999999994
+p_gyrase_ns_per_bp	2.0000000000000003e-06
+p_gyrase_s	0.025
+
+##############
+# Statistics #
+##############
+verbose	False
+verbose_every	1000
+promoter_to_follow	False
+Niterations	10000000000
+Ntranscripts_max	10000
+Nevery_transcripts	1000
+fo_out	/home/junieri/twinTrans/results/2024_05/Degradation_Scenario/LasG1.25_LasT1.4/_kbkoso/kb1_ko0.1_so0.05_d500
