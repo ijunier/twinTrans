@@ -1,0 +1,79 @@
+# test_update_presence_topo1_spec.py
+
+import os
+import sys
+
+# ─── Ajusta o import para encontrar sua pasta src ───
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
+
+import numpy as np
+from param_var import ModelParam, RNAP
+from functions import update_presence_topo1_spec
+
+def test_update_presence_topo1_spec():
+    """
+    Verifica se a fração de unbinding observada ≈ k_unbind * dt
+    """
+    # 1) Fixar semente para reprodutibilidade
+    np.random.seed(0)
+
+    # 2) Montar os argumentos necessários para o ModelParam
+    Args = type("A", (), {
+        # DNA / gene
+        "dna_A": 300,
+        "gene_tss": 55,
+        "rnap_excluded_length": 30,
+        "gene_L": 900,
+        "gene_Ldown": 320,
+        # promoter
+        "promoter_kb": 1,
+        "promoter_ko": 1,
+        "promoter_sigma_o": -0.05,
+        "promoter_ke": 100,
+        # RNAP
+        "rnap_vm": 25,
+        "rnap_torque_stall": 18.5,
+        # TopoI
+        "topoI_lambda_ns": 0.05,
+        "topoI_Lambda_s": 1.0,
+        "topoI_sigma_active": -0.05,
+        "topoI_k_unbind": 0.1,     # garante que exista este atributo
+        # Gyrase
+        "gyrase_lambda_ns": 1e-4,
+        "gyrase_Lambda_s": 2.0,
+        # coarse-graining
+        "coarse_g_dx": 1.0,
+    })()
+    modelP = ModelParam(Args)
+
+    # 3) Ajustar o delta de tempo para 1s (facilita a comparação)
+    modelP.coarse_g.tau_0 = 1.0
+    dt = modelP.coarse_g.tau_0
+
+    N = 100_000
+    unbind_count = 0
+
+    # 4) Loop de unbinding
+    for _ in range(N):
+        r = RNAP()
+        # Garante que o RNAP comece com TopoI ligada
+        r.topo1_bound = 1
+
+        update_presence_topo1_spec(r, modelP, dt)
+
+        # Conta quantos RNAPs perderam a TopoI neste passo
+        if r.topo1_bound == 0:
+            unbind_count += 1
+
+    observed = unbind_count / N
+    expected = modelP.topoI.k_unbind * dt
+
+    print(f"observed = {observed:.4f}, expected ≈ {expected:.4f}")
+    # permite erro de até 0.5%
+    assert abs(observed - expected) < 0.005, "Unbinding fora do esperado"
+
+if __name__ == "__main__":
+    test_update_presence_topo1_spec()
+    print("✔ test_update_presence_topo1_spec passed")
+
+

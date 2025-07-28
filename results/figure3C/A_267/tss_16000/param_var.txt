@@ -1,0 +1,89 @@
+.\bin\twin.py .\results\figure3C\A_267\tss_16000 -kb 0.453 -ko 0.32 -so -0.05 -ke 100 -tss 16000 -Ld 520 -A 267 -f
+
+###########
+# General #
+###########
+dna	<param_var.ModelParam._DNA object at 0x000002A2D44DA450>
+gene	<param_var.ModelParam._Gene object at 0x000002A2D42E9A50>
+promoter	<param_var.ModelParam._Promoter object at 0x000002A2D42E9BD0>
+rnap	<param_var.ModelParam._RNAP object at 0x000002A2D476CD90>
+topoI	<param_var.ModelParam._TopoI object at 0x000002A2D47C0DD0>
+gyrase	<param_var.ModelParam._Gyrase object at 0x000002A2D44C8450>
+coarse_g	<param_var.ModelParam._CoarseGraining object at 0x000002A2D44C85D0>
+k_unbind	1000
+enable_topo1_unbinding	False
+
+########
+# Gene #
+########
+tss	16000
+rnap_xi	15985
+Lk0_rnap_xi	1522.3809523809523
+L	900
+Ldown	520
+term	16900
+L_domain	17420
+Lk0_domain	1659.047619047619
+Lk_domain	1659.047619047619
+
+############
+# Promoter #
+############
+kb	0.453
+kb_s	2.2075055187637966
+ko	0.32
+ko_s	3.125
+sigma_o	-0.05
+ke	100.0
+ke_s	0.01
+
+########
+# RNAP #
+########
+excluded_length_elongation	30
+vm	25
+torque_stall	18.5
+sigma_stall	-0.06928838951310862
+presence_topo1_spec	1
+
+#########
+# TopoI #
+#########
+sigma_active	-0.05
+lambda_ns	0.0001
+Lambda_s	1
+k_unbind	1000
+
+##########
+# Gyrase #
+##########
+lambda_ns	0.0001
+Lambda_s	2
+
+#######
+# DNA #
+#######
+n	10.5
+A	267.0
+
+###################
+# Coarse graining #
+###################
+dx	1
+dLk	0.09523809523809523
+tau_0	0.04
+p_topoI_ns_per_bp	4.000000000000001e-06
+p_topoI_s	0.04
+p_gyrase_ns_per_bp	2.0000000000000003e-06
+p_gyrase_s	0.04
+
+##############
+# Statistics #
+##############
+verbose	False
+verbose_every	1000
+promoter_to_follow	False
+Niterations	10000000000
+Ntranscripts_max	10000
+Nevery_transcripts	1000
+fo_out	.\results\figure3C\A_267\tss_16000

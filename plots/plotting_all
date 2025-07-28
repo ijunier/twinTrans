@@ -1,0 +1,41 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Configuration
+promoters = ["weak", "medium", "strong"]
+base_dir = "results/figure3B"
+distances = [100, 200, 250, 300, 500, 1000, 2000, 3205, 4000, 5000]
+target_transcripts = 10000
+
+# Collect rates and susceptibilities
+sus_data = {}
+for p in promoters:
+    rates = {}
+    for d in distances:
+        fn = os.path.join(base_dir, p, f"tss_{d}", "mean_properties.txt")
+        if os.path.isfile(fn):
+            df = pd.read_csv(fn, sep='\t')
+            row = df[df['transcripts_nb'] == target_transcripts]
+            rate = float(row['prod_rate']) if not row.empty else np.nan
+        else:
+            rate = np.nan
+        rates[d] = rate
+    # Compute susceptibility = rate(d)/rate(250)
+    reference = rates[250]
+    sus_data[p] = [rates[d] / reference for d in distances]
+
+# Plot all three in one figure
+fig, axes = plt.subplots(nrows=3, ncols=1, sharex=True, figsize=(6, 10))
+for ax, p in zip(axes, promoters):
+    ax.plot(distances, sus_data[p], marker='o', linestyle='-')
+    ax.set_xscale('log')
+    ax.set_ylabel("Susceptibility\n(rate(d)/rate(250))")
+    ax.set_ylim([0.9,1.32])
+    ax.set_title(f"{p.capitalize()} promoter")
+    ax.grid(True, which='both', linestyle=':')
+
+axes[-1].set_xlabel("Upstream distance d (bp)")
+plt.tight_layout()
+plt.show()

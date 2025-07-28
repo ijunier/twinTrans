@@ -1,0 +1,50 @@
+import numpy as np
+
+# Stub classes to mimic minimal parts of your ModelParam and RNAP
+class StubTopoI:
+    def __init__(self, k_unbinding):
+        self.k_unbinding = k_unbinding
+
+class StubCoarseG:
+    def __init__(self, tau_0):
+        self.tau_0 = tau_0
+
+class StubModelP:
+    def __init__(self, k_unbinding, tau_0):
+        self.topoI = StubTopoI(k_unbinding)
+        self.coarse_g = StubCoarseG(tau_0)
+
+class StubRNAP:
+    def __init__(self):
+        self.presence_topo1_spec = True
+
+# The function you added; replicate here for testing
+def update_presence_topo1_spec(rnap, modelP, dt):
+    """
+    Updates rnap.presence_topo1_spec:
+      - if True, unbinds with probability k_unbinding * dt
+    """
+    if getattr(rnap, "presence_topo1_spec", False):
+        p_unbind = modelP.topoI.k_unbinding * dt
+        if np.random.rand() < p_unbind:
+            rnap.presence_topo1_spec = False
+
+# Test parameters
+np.random.seed(42)
+modelP = StubModelP(k_unbinding=0.05, tau_0=1.0)
+dt = modelP.coarse_g.tau_0
+N = 100000
+
+# Run many trials to estimate unbinding fraction
+unbind_count = 0
+for _ in range(N):
+    r = StubRNAP()
+    update_presence_topo1_spec(r, modelP, dt)
+    if not r.presence_topo1_spec:
+        unbind_count += 1
+
+observed_fraction = unbind_count / N
+expected_fraction = modelP.topoI.k_unbinding * dt
+
+print(f"Observed unbind fraction: {observed_fraction:.4f}")
+print(f"Expected unbind probability: {expected_fraction:.4f}")

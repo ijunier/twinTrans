@@ -1,0 +1,37 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Promoters to plot
+promoters = ["medium", "strong"]
+base_dir = "results/figure3B"
+#distances = [250, 300, 350, 400, 450, 500, 600, 750, 1000, 1500, 2000, 3205]
+distances = [250, 300, 500, 1000, 2000, 3205]
+sus = {}
+for p in promoters:
+    rates = []
+    for d in distances:
+        fn = os.path.join(base_dir, p, f"tss_{d}", "mean_properties.txt")
+        if not os.path.isfile(fn):
+            print(f"Warning: file not found {fn}")
+            rates.append(np.nan)
+            continue
+        df = pd.read_csv(fn, sep='\t')
+        prod_rate = df['prod_rate'].iloc[-1]
+        rates.append(prod_rate)
+    rates = np.array(rates)
+    sus[p] = rates / rates[0]
+
+fig, axes = plt.subplots(nrows=2, ncols=1, sharex=True, figsize=(6, 6))
+for ax, p in zip(axes, promoters):
+    ax.plot(distances, sus[p], marker='o')
+    ax.set_ylabel("upstream susceptibility")
+    ax.set_title(f"{p.capitalize()} promoter")
+    ax.grid(True, which='both', linestyle=':')
+axes[-1].set_xscale('log')
+axes[-1].set_xlabel("upstream distance d (bp)")
+
+plt.tight_layout()
+plt.show()
+

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Configuration
+promoters = ["weak", "medium", "strong"]
+base_dir   = "results/figure3B"
+distances  = [100, 200, 250, 300, 500, 1000, 2000, 3205, 4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000]
+
+# Pre-calc index of the 250 bp reference
+ref_idx = distances.index(250)
+
+# Collect means, susceptibilities, and SEMs
+sus_data = {}
+err_data = {}
+
+for p in promoters:
+    mean_rates = []
+    sem_rates  = []
+    for d in distances:
+        fn = os.path.join(base_dir, p, f"tss_{d}", "mean_properties.txt")
+        if not os.path.isfile(fn):
+            mean_rates.append(np.nan)
+            sem_rates .append(np.nan)
+            continue
+
+        # Read whitespace-delimited to cover tabs/spaces
+        df = pd.read_csv(fn, delim_whitespace=True)
+
+        # Build block-by-block rates ΔN/Δt
+        Ns = df["transcripts_nb"].values
+        Ts = df["time"].values
+        ΔN = Ns[1:] - Ns[:-1]
+        ΔT = Ts[1:] - Ts[:-1]
+        block_rates = ΔN / ΔT
+
+        # Mean and SEM of those block rates
+        mean_rates.append(block_rates.mean())
+        sem_rates .append(block_rates.std(ddof=1) / np.sqrt(len(block_rates)))
+
+    # Normalize to distance = 250 bp reference
+    r_ref = mean_rates[ref_idx]
+    sus_data[p] = [r / r_ref       for r in mean_rates]
+    err_data[p] = [e / r_ref       for e in sem_rates ]
+
+# Plot all three in one figure
+fig, axes = plt.subplots(nrows=3, ncols=1, sharex=True, figsize=(6, 10))
+
+for ax, p in zip(axes, promoters):
+    ax.errorbar(
+        distances,
+        sus_data[p],
+        yerr=err_data[p],
+        marker='o',
+        linestyle='-',
+        capsize=3,
+        label=p.capitalize()
+    )
+    ax.set_xscale('log')
+    ax.set_ylabel("Susceptibility\n(rate(d)/rate(250))")
+    ax.set_ylim([0.9, 1.45])
+    ax.set_title(f"{p.capitalize()} promoter")
+    ax.grid(True, which='both', linestyle=':')
+    ax.set_xlim(100, 20000)
+
+axes[-1].set_xlabel("Upstream distance d (bp)")
+plt.tight_layout()
+plt.show()

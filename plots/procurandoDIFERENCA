@@ -1,0 +1,16 @@
+import os
+import pandas as pd
+
+base_dir = "results/valores_k4/mean_PrimeiraVersaoOCP"  # a run que você quer analisar
+
+# 1) Traj_promoter.txt
+traj_file = os.path.join(base_dir, "traj_promoter.txt")
+tp = pd.read_csv(traj_file, sep="\t")
+esc1 = tp[tp["t_upRNAPelong"] == 1].head(1)
+if not esc1.empty:
+    time_esc = esc1["time"].iloc[0]
+    sigma_esc = esc1["sigma"].iloc[0]
+else:
+    time_esc, sigma_esc = None, None
+
+print(f"Primeira elongação ocorreu em t = {time_esc}s, σ = {sigma_esc}")

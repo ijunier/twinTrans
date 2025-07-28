@@ -1,0 +1,72 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =====================
+# 1) CONFIGURAÇÃO
+# =====================
+BASE_DIR    = "results/valores_k6"  # raiz onde estão k_0.001, k_0.1, ...
+GENE_LENGTH = 900.0                # em pb
+
+MAX_N       = 10000
+
+# =====================
+# 2) VARRE CADA k_*
+# =====================
+ks = []
+velocities = []
+
+for nome in sorted(os.listdir(BASE_DIR)):
+    # só entra em pastas que começam com 'k_'
+    if not nome.startswith("k_"):
+        continue
+
+    pasta = os.path.join(BASE_DIR, nome)
+    fn = os.path.join(pasta, "mean_properties.txt")
+    if not os.path.isfile(fn):
+        print(f"Aviso: não encontrei {fn}")
+        continue
+
+    # tenta extrair o valor numérico de k_unbinding
+    try:
+        k_val = float(nome.split("_", 1)[1])
+    except:
+        print(f"Aviso: não consegui converter '{nome}' em float")
+        continue
+
+    df = pd.read_csv(fn, delim_whitespace=True)
+
+    # seleciona apenas a linha em que transcripts_nb == MAX_N
+    row = df[df["transcripts_nb"] == MAX_N]
+    if row.empty:
+        print(f"Aviso: não encontrei registro para transcripts_nb == {MAX_N} em {fn}")
+        continue
+
+    # extrai o mean_elong_time dessa única linha
+    mean_elong = row["mean_elong_time"].iloc[0]
+
+    # velocidade em pb/s
+    vel = GENE_LENGTH / mean_elong
+
+    # guarda
+    ks.append(k_val)
+    velocities.append(vel)
+
+# =====================
+# 3) ORDENA E PLOTA
+# =====================
+# ordena por k
+paired = list(zip(ks, velocities))
+paired.sort(key=lambda x: x[0])
+ks_sorted, vs_sorted = zip(*paired)
+
+plt.figure(figsize=(6,4))
+plt.plot(ks_sorted, vs_sorted, marker="o", lw=2)
+plt.xscale("log")
+plt.xlabel("k_unbinding (s⁻¹)")
+plt.ylabel("Velocity (pb/s)")
+plt.title("Elongation Velocity vs k_unbinding")
+plt.grid(True, which="both", ls=":")
+plt.tight_layout()
+plt.show()

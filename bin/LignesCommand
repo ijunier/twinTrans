@@ -1,0 +1,1 @@
+python .\bin\twin.py .\results\figure3B\medium\tss_300 -kb 0.453 -ko 0.32 -so -0.05 -ke 1000000 -tss 300  -Ld 520 -rseed 12345

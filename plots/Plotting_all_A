@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === 1) CONFIGURATION ===
+base_dir    = "results/figure3C"
+A_values    = [200, 233, 267, 300, 333, 367]
+distances   = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000]
+TARGET_N    = 10000
+
+# === 2) READ & NORMALIZE PER A ===
+sus_by_A = {}
+
+# pre-calc index of 250 bp
+ref_idx = distances.index(250)
+
+for A in A_values:
+    rates = []
+    for d in distances:
+        fn = os.path.join(base_dir, f"A_{A}", f"tss_{d}", "mean_properties.txt")
+        df = pd.read_csv(fn, delim_whitespace=True)
+        # assume último registro é o TARGET_N
+        rate = df["prod_rate"].iloc[-1]
+        rates.append(rate)
+    # normalize to the 250 bp distance
+    ref = rates[ref_idx]
+    sus_by_A[A] = [r / ref for r in rates]
+
+# === 3) PLOT ALL TOGETHER ===
+plt.figure(figsize=(8,5))
+for A, sus in sus_by_A.items():
+    plt.plot(distances, sus, marker='o', lw=2, label=f"A={A}")
+
+plt.xscale('log')
+plt.xlabel("Upstream distance d (bp)")
+plt.ylabel("Susceptibility\n(rate(d)/rate(250))")
+plt.title("Upstream Susceptibility vs Distance (normalized at 250 bp)")
+plt.grid(True, which='both', ls=':')
+plt.legend(title="DNA stiffness")
+plt.tight_layout()
+plt.show()
+

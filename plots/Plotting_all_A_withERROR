@@ -1,0 +1,62 @@
+#!/usr/bin/env python3
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === 1) CONFIGURATION ===
+base_dir    = "results/figure3C"
+A_values    = [200, 233, 267, 300, 333, 367]
+distances   = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000]
+
+# pre–calc index of the reference distance
+ref_idx = distances.index(250)
+
+# === 2) READ, COMPUTE BLOCK RATES + SEM, NORMALIZE ===
+sus_by_A = {}
+err_by_A = {}
+
+for A in A_values:
+    mean_rates = []
+    sem_rates  = []
+    for d in distances:
+        fn = os.path.join(base_dir, f"A_{A}", f"tss_{d}", "mean_properties.txt")
+        df = pd.read_csv(fn, delim_whitespace=True)
+
+        # compute block rates: ΔN / Δt
+        Ns = df["transcripts_nb"].values
+        Ts = df["time"].values
+        deltaN = Ns[1:] - Ns[:-1]      # will be constant (e.g. 1000)
+        deltaT = Ts[1:] - Ts[:-1]
+        block_rates = deltaN / deltaT  # instantaneous rate per block
+
+        # mean and SEM of those block rates
+        mean_rates.append(block_rates.mean())
+        sem_rates .append(block_rates.std(ddof=1) / np.sqrt(len(block_rates) -1)) 
+
+    # normalize to the 250 bp reference
+    r_ref    = mean_rates[ref_idx]
+    sus_by_A[A] = [r / r_ref for r in mean_rates]
+    err_by_A[A] = [e / r_ref for e in sem_rates]
+
+# === 3) PLOT WITH ERROR BARS ===
+plt.figure(figsize=(8,5))
+for A in A_values:
+    plt.errorbar(
+        distances,
+        sus_by_A[A],
+        yerr=2*np.array(err_by_A[A]),
+        marker='o',
+        lw=1.5,
+        capsize=4,
+        label=f"A = {A}"
+    )
+
+plt.xscale('log')
+plt.xlabel("Upstream distance d (bp)")
+plt.ylabel("Susceptibility\n(rate(d)/rate(250))")
+plt.title("Upstream Susceptibility vs Distance\nwith SEM from ΔN blocks")
+plt.grid(True, which='both', linestyle=':')
+plt.legend(title="DNA stiffness A")
+plt.tight_layout()
+plt.show()

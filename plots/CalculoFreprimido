@@ -1,0 +1,24 @@
+import pandas as pd
+
+# 1) Parameters
+sigma_o = -0.05
+dt      = 0.04   # passo de tempo (s) – ex.: dx/vm = 1/25 → 0.04 s
+
+# 2) Directory of the file
+fn = "results/promfollow/A_200/tss_1000/traj_promoter.txt"
+
+# 3) Read TXT
+df = pd.read_csv(fn, sep="\t")
+
+# 4) Filtering starting at t = 100 s
+df_after_100 = df[df["time"] >= 100.0]
+
+# 5) Counting
+mascara = df_after_100["sigma"] > sigma_o
+n_acima = mascara.sum()                     # how many lines are σ > –0.05
+
+# 6) Total time Repressed
+tempo_reprimido = n_acima * dt
+
+# 7) Show
+print(f"A partir de t=100s, o tempo com σ > {sigma_o} foi {tempo_reprimido:.2f} s")

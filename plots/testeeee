@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import os, sys
+import numpy as np
+
+# ─── 1) Ajusta o import para encontrar src/ ───
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "src")
+    )
+)
+
+# ─── 2) Gere os args padrão usando o parser interno ───
+#    Ele precisa de um argume#!/usr/bin/env python3
+import os, sys
+import numpy as np
+
+# ─── 1) Ajusta o import para encontrar src/ ───
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "src")
+    )
+)
+
+from param_var import parsing_cmd, ModelParam, RNAP
+from functions import DLk_TopoI
+
+# ─── 2) Use o parser pra criar args completos ───
+sys.argv = ["mini_test_spec.py", "dummy_out"]
+args = parsing_cmd()
+# Sobrescreva só o que interessa:
+args.topoI_k_unbind   = 0.5
+args.coarse_g_dx      = 1.0
+
+modelP = ModelParam(args)
+modelP.coarse_g.p_topoI_s = 0.5
+modelP.coarse_g.tau_0     = 1.0
+
+# ─── 3) Prepare o RNAP stub ───
+np.random.seed(0)
+r = RNAP()
+r.topo1_bound = 1
+# **É ESSA LINHA A MAIS**:
+r.sigma = {"up": 0.0, "down": 0.0}
+
+# ─── 4) Amostre DLk_TopoI("spec") ───
+N, cnt = 100_000, 0
+for _ in range(N):
+    if DLk_TopoI("spec", r, modelP) > 0:
+        cnt += 1
+
+print(f"freq spec>0 = {cnt/N:.3f} (esperado ~{modelP.coarse_g.p_topoI_s:.3f})")
+
+#    então você simula um sys.argv mínimo com um nome de pasta.
+sys.argv = ["mini_test_spec.py", "dummy_output_folder"]
+from param_var import parsing_cmd, ModelParam, RNAP
+from functions import DLk_TopoI
+
+# parsing_cmd() vai ler o sys.argv acima e retornar
+# um objeto args já populado com TODOS os defaults do seu CLI.
+args = parsing_cmd()
+
+# ─── 3) Sobrescreva apenas o que interessa para o teste ───
+args.topoI_k_unbind   = 0.5   # taxa de unbind bem alta  
+args.coarse_g_dx      = 1.0   # resolução de 1 bp  
+# (p_topoI_s já vem do coarse_g default, mas podemos reforçar)
+# args.coarse_g_p_topoI_s = 0.5  # já é ~1*dt, se quiser
+
+# 4) Crie o ModelParam e force p_topoI_s se necessário
+modelP = ModelParam(args)
+modelP.coarse_g.p_topoI_s = 0.5
+
+# ─── 5) Monte um RNAP e teste o comportamento "spec" ───
+np.random.seed(0)
+r = RNAP()
+r.topo1_bound = 1   # força a rota específica
+# r.sigma não é usado dentro de DLk_TopoI("spec"), então não precisa stubar nada mais
+
+# 6) Amostre muitas vezes e conte quantas vezes DLk_TopoI("spec") > 0
+N = 100_000
+cnt = 0
+for _ in range(N):
+    if DLk_TopoI("spec", r, modelP) > 0:
+        cnt += 1
+
+print(f"freq spec>0 = {cnt/N:.3f} (esperado ~{modelP.coarse_g.p_topoI_s:.3f})")

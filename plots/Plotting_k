@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === 1) CONFIGURAÇÃO ===
+base_dir    = "results/valores_K"   # pasta que contém k_0.001, k_0.1, ...
+gene_length = 900.0                 # tamanho do gene em pb
+TARGET_N    = 10000                 # número de transcritos p/ pegar a última linha
+
+# === 2) VARRE PASTAS de k_* e CALCULA VELOCIDADE ===
+velocities = []  # lista de (k_unbind, velocidade)
+
+for entry in sorted(os.listdir(base_dir)):
+    if not entry.startswith("k_"):
+        continue
+
+    k_str = entry[2:]               # retira "k_"
+    try:
+        k_val = float(k_str)
+    except ValueError:
+        continue
+
+    fn = os.path.join(base_dir, entry, "mean_properties.txt")
+    if not os.path.isfile(fn):
+        print(f"Aviso: não achei {fn}")
+        continue
+
+    # lê o .txt
+    df = pd.read_csv(fn, delim_whitespace=True)
+
+    # tenta achar a linha transcripts_nb == TARGET_N, senão usa a última
+    sub = df[df["transcripts_nb"] == TARGET_N]
+    row = sub.iloc[0] if len(sub) else df.iloc[-1]
+
+    mean_elong = row["mean_elong_time"]
+    velocity  = gene_length / mean_elong
+    velocities.append((k_val, velocity))
+
+# ordena por k
+velocities.sort(key=lambda x: x[0])
+ks, vs = zip(*velocities)
+
+# === 3) PLOT ===
+plt.figure(figsize=(6,4))
+plt.plot(ks, vs, marker="o", lw=2)
+plt.xscale("log")
+plt.xlabel("k_unbinding (s⁻¹)")
+plt.ylabel("Velocidade (pb/s)")
+plt.title("Velocidade de elongação vs k_unbinding")
+plt.grid(True, which="both", ls=":")
+plt.tight_layout()
+plt.show()
+

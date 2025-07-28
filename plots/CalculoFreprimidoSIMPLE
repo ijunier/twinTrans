@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+
+# Limiar de repressão e tempo de início
+sigma_o     = -0.05         # repressão quando sigma > sigma_o
+t_start     = 100.0         # começa a contar só a partir de t >= 100s
+
+contador    = 0
+total       = 0
+
+with open("results/promfollow/A_200/tss_100/traj_promoter.txt") as f:
+    next(f)  # pula cabeçalho
+    for line in f:
+        parts = line.strip().split()
+        if len(parts) < 2:
+            continue
+
+        # lê time e sigma
+        time  = float(parts[0])
+        sigma = float(parts[1])
+
+        # pula enquanto estiver antes de t_start
+        if time < t_start:
+            continue
+
+        total += 1
+        if sigma > sigma_o:
+            contador += 1
+
+fracao = contador / total if total > 0 else 0.0
+
+print(f"Começando em t ≥ {t_start}s")
+print(f"Passos totais     : {total}")
+print(f"Passos reprimidos : {contador}")
+print(f"Fração de repressão: {fracao:.2%}")
+

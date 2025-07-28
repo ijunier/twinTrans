@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =====================
+# 1) CONFIGURAÇÃO
+# =====================
+BASE_DIRS   = [
+    "results/valores_k6",
+    "results/valores_k7",
+    "results/valores_k8",
+]
+GENE_LENGTH = 900.0  # em pb
+MAX_N       = 10000
+
+# === 2) DEFINA (ko, ke) PARA CADA PROMOTOR ===
+# Substitua pelos valores reais que você conhece:
+prom_params = {
+    "valores_k6": (0.453, 0.32),   # exemplo: ko6=1/s, ke6=100/s
+    "valores_k7": (0.64,  0.04),   # exemplo: ko7=0.5/s, ke7=50/s
+    "valores_k8": (0.32, 3.62),   # exemplo: ko8=2/s, ke8=200/s
+}
+
+label_map = {
+    "valores_k6": "Medium promoter",
+    "valores_k7": "Weak promoter",
+    "valores_k8": "Strong promoter",
+}
+
+plt.figure(figsize=(6,4))
+
+# =====================
+# 3) PARA CADA PASTA valores_k*
+# =====================
+for base in BASE_DIRS:
+    key = os.path.basename(base)
+    ko, ke = prom_params[key]
+    tau = 1/ko + 1/ke
+
+    ks = []
+    velocities = []
+
+    for nome in sorted(os.listdir(base)):
+        if not nome.startswith("k_"):
+            continue
+
+        pasta = os.path.join(base, nome)
+        fn = os.path.join(pasta, "mean_properties.txt")
+        if not os.path.isfile(fn):
+            print(f"Aviso: não encontrei {fn}")
+            continue
+
+        # extrai valor de k do nome da pasta
+        try:
+            k_val = float(nome.split("_", 1)[1])
+        except:
+            print(f"Aviso: não consegui converter '{nome}' em float")
+            continue
+
+        df = pd.read_csv(fn, delim_whitespace=True)
+        row = df[df["transcripts_nb"] == MAX_N]
+        if row.empty:
+            print(f"Aviso: não achei registro para transcripts_nb == {MAX_N} em {fn}")
+            continue
+
+        mean_elong = row["mean_elong_time"].iloc[0]
+        vel = GENE_LENGTH / mean_elong
+
+        ks.append(k_val)
+        velocities.append(vel)
+
+    # ordena por k
+    paired = sorted(zip(ks, velocities), key=lambda x: x[0])
+    ks_sorted, vs_sorted = zip(*paired)
+
+    # calcula k adimensional
+    k_dim = [k * tau for k in ks_sorted]
+
+    # plota a curva para este conjunto
+    label = label_map.get(key, key)
+    plt.plot(k_dim, vs_sorted, marker="o", lw=2, label=label)
+
+# =====================
+# 4) FORMATAR GRÁFICO
+# =====================
+plt.xscale("log")
+plt.xlabel(r"$k_{\mathrm{unbind}}\tau\;( \tau = 1/k_o + 1/k_e)$")
+plt.ylabel("Velocity (pb/s)")
+plt.title("Elongation Velocity vs adimensional $k_{unbind}\\,\\tau$")
+plt.grid(True, which="both", ls=":")
+plt.legend(title="Promoter strength")
+plt.tight_layout()
+plt.show()

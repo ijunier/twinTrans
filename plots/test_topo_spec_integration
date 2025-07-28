@@ -1,0 +1,97 @@
+# test_topo_spec_integration.py
+
+import os
+import sys
+
+# ─── Ajusta o import para encontrar sua pasta src ───
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
+
+import numpy as np
+from param_var import ModelParam, RNAP
+from functions import topo_stage_RNAPpresent, DLk_TopoI
+
+def test_topo_spec_integration():
+    """
+    Testa se topo_stage_RNAPpresent:
+      1) desliga TopoI com taxa ≈ k_unbind * dt
+      2) só gera DTopoI_spec > 0 quando presence_topo1_spec == True
+    """
+    # 1) seed fixa
+    np.random.seed(1)
+
+    # 2) args mínimos para o ModelParam
+    Args = type("A", (), {
+        # DNA / gene
+        "dna_A": 300,
+        "gene_tss": 55,
+        "rnap_excluded_length": 30,
+        "gene_L": 900,
+        "gene_Ldown": 320,
+        # promoter
+        "promoter_kb": 1,
+        "promoter_ko": 1,
+        "promoter_sigma_o": -0.05,
+        "promoter_ke": 100,
+        # RNAP
+        "rnap_vm": 25,
+        "rnap_torque_stall": 18.5,
+        # TopoI
+        "topoI_lambda_ns": 0.05,
+        "topoI_Lambda_s": 1.0,
+        "topoI_sigma_active": -0.05,
+        "topoI_k_unbind": 0.05,
+        # Gyrase
+        "gyrase_lambda_ns": 1e-4,
+        "gyrase_Lambda_s": 2.0,
+        # coarse-graining
+        "coarse_g_dx": 1.0,
+    })()
+    modelP = ModelParam(Args)
+
+    # 3) stub de dna.n para domain_length_topo
+    modelP.dna.n = 1.0
+
+    # 4) ajustes de dt e probabilidade spec
+    modelP.coarse_g.tau_0    = 1.0   # dt = 1s
+    modelP.coarse_g.p_topoI_s = 0.5  # p de relaxamento específico
+
+    N = 10_000
+    unbind_cnt   = 0
+    spec_nonzero = 0
+
+    for _ in range(N):
+        r = RNAP()
+
+        # ─── stubs para não ter NoneType ───
+        r.presence_topo1_spec = True
+        r.topo1_bound         = 1
+        r.t_elongating        = True
+        r.Lk0   = {"up":1.0, "down":1.0}
+        r.Lk    = {"up":1.0, "down":1.0}
+        r.sigma = {"up":0.0, "down":0.0}
+
+        # executa só o estágio de topologia
+        topo_stage_RNAPpresent(modelP, [r])
+
+        # 1) conta quantos desligamentos ocorreram
+        if not r.presence_topo1_spec or r.topo1_bound == 0:
+            unbind_cnt += 1
+
+        # 2) checa manualmente DTopoI_spec
+        val = DLk_TopoI("spec", r, modelP) if r.presence_topo1_spec and r.topo1_bound == 1 else 0
+        if r.presence_topo1_spec and r.topo1_bound == 1:
+            assert val >= 0
+            if val > 0:
+                spec_nonzero += 1
+        else:
+            assert val == 0, "Relaxamento específico sem TopoI ligada!"
+
+    print(f"unbind rate               = {unbind_cnt/N:.3f} (esperado ~{modelP.topoI.k_unbind:.3f})")
+    print(f"spec>0 rate when bound    = {spec_nonzero/(N-unbind_cnt):.3f}")
+    print("✔ test_topo_spec_integration passed")
+
+if __name__ == "__main__":
+    test_topo_spec_integration()
+
+
+

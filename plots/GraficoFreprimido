@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# General parameters
+sigma_threshold = -0.05       # repression threshold (sigma > this value is "repressed")
+t_start         = 100.0       # only count from time >= 100 seconds
+base_directory  = "results/promfollow"
+
+# Numeric promoter identifiers (we’ll prepend "A_" for the directory names)
+promoter_values = [200, 233, 267, 300, 333, 367]
+promoter_dirs   = [f"A_{val}" for val in promoter_values]
+
+# TSS values to process
+tss_values = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 80000, 90000, 100000]
+
+# Collect results in a list of dicts
+records = []
+for prom_dir in promoter_dirs:
+    for tss in tss_values:
+        filepath = os.path.join(base_directory, prom_dir, f"tss_{tss}", "traj_promoter.txt")
+        if not os.path.isfile(filepath):
+            continue
+
+        repressed_count = 0
+        total_count     = 0
+
+        with open(filepath) as f:
+            next(f)  # skip header
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) < 2:
+                    continue
+                time  = float(parts[0])
+                sigma = float(parts[1])
+                if time < t_start:
+                    continue
+                total_count += 1
+                if sigma > sigma_threshold:
+                    repressed_count += 1
+
+        fraction_repressed = repressed_count / total_count if total_count > 0 else 0.0
+        records.append({
+            "Promoter":        prom_dir,
+            "TSS":             tss,
+            "FractionRepress": fraction_repressed
+        })
+
+# Convert to DataFrame and pivot
+df = pd.DataFrame(records)
+pivot_df = df.pivot(index="TSS", columns="Promoter", values="FractionRepress")
+
+# Plot
+plt.figure(figsize=(8, 5))
+for prom_dir in pivot_df.columns:
+    plt.plot(
+        pivot_df.index,
+        pivot_df[prom_dir] * 100,  # percent
+        marker="o",
+        label=prom_dir
+    )
+
+plt.xlabel("TSS (bp)")
+plt.xscale('log')
+plt.ylabel("Fraction of Time Repressed (%)")
+plt.title(f"Promoter Repression (t ≥ {t_start}s, σ₀ = {sigma_threshold})")
+plt.legend(title="DNA stiffness")
+plt.grid(True)
+plt.tight_layout()
+plt.show()

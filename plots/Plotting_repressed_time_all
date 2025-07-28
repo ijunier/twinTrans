@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === CONFIGURATION ===
+distances = [100,200,250,300,500,1000,2000,3000,4000,5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000]
+A_values  = [200,233,267,300,333,367]
+root      = "results/promfollow"
+sigma_o   = -0.05
+t0_cut    = 100.0    # ignore everything before this time
+sub_A     = "A_{}"
+sub_tss   = "tss_{}"
+
+# === COMPUTE repressed-time AFTER t>=150s FOR EACH A & DISTANCE ===
+repressed = {}
+
+for A in A_values:
+    times_for_A = []
+    for d in distances:
+        fn = os.path.join(root, sub_A.format(A), sub_tss.format(d), "traj_promoter.txt")
+        if not os.path.isfile(fn):
+            times_for_A.append(np.nan)
+            continue
+
+        df    = pd.read_csv(fn, delim_whitespace=True)
+        t     = df["time"].values
+        sigma = df["sigma"].values
+
+        # only count intervals starting at or after t0_cut
+        start_idx = np.searchsorted(t, t0_cut)
+
+        dt   = np.diff(t)                      # [t1−t0, t2−t1, …]
+        mask = (sigma[:-1] > sigma_o)          \
+             & (t[:-1]   >= t0_cut)            # both repressed AND past 100s
+
+        total = dt[mask].sum()
+        times_for_A.append(total)
+
+    repressed[A] = times_for_A
+
+# === PLOT ALL IN ONE FIGURE ===
+plt.figure(figsize=(8,5))
+for A in A_values:
+    plt.plot(distances, repressed[A], '-o', label=f"A={A}")
+
+plt.xscale('log')
+plt.xlabel("Upstream distance d (bp)")
+plt.ylabel(r"Time with $\sigma>\sigma_0$ after 150 s (s)")
+plt.title("Repressed‐state dwell after 150 s vs upstream distance")
+plt.grid(True, which='both', linestyle=':')
+plt.legend(title="DNA stiffness A")
+plt.tight_layout()
+plt.show()
+
+

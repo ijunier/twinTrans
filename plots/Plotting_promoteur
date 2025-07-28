@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1) Point to your data file
+folder = "results/promfollow/A_200/tss_100"
+fn     = os.path.join(folder, "traj_promoter.txt")
+
+# 2) Load it
+df = pd.read_csv(fn, sep="\t")
+
+# 3) Plot σ vs time
+plt.figure(figsize=(6,4))
+plt.plot(df["time"], df["sigma"], lw=1)
+# DRAW A THRESHOLD LINE SIGMA_O = -0.05
+plt.axhline(-0.05, color="red", ls="--", label="σ₀ = -0.05")
+# FILL IN RED WHERE σ > -0.05
+plt.fill_between(
+    df["time"],
+    df["sigma"],
+    -0.05,
+    where=(df["sigma"] > -0.05),
+    color="red",
+    alpha=0.3,
+    interpolate=True,
+    label="σ > σ₀"
+)
+
+plt.xlabel("Time (s)")
+plt.ylabel("Promoter σ (supercoiling density)")
+plt.title("Promoter supercoiling over time A_200 tss_100")
+plt.grid(True, ls=":")
+plt.tight_layout()
+plt.show()
+
+
+

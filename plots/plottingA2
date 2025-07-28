@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === 1) CONFIGURATION ===
+promoters = ["weak", "medium", "strong"]
+# root under which you'll find weakA/, mediumA/, strongA/
+base_root  = os.path.join("results", "figure3A", "figure3A")
+A_values   = [200, 233, 267, 300, 333, 367]
+TARGET_N   = 10000
+
+# === 2) READ & NORMALIZE ===
+sus_data = {}
+
+for p in promoters:
+    base_dir = os.path.join(base_root, f"{p}A")
+    rates = []
+    for A in A_values:
+        fn = os.path.join(base_dir, f"A_{A}", "mean_properties.txt")
+        df = pd.read_csv(fn, sep="\t")
+        # take the prod_rate exactly at TARGET_N transcripts
+        rate = float(df.loc[df["transcripts_nb"] == TARGET_N, "prod_rate"].iloc[0])
+        rates.append(rate)
+    # normalize to A = 300
+    idx300 = A_values.index(300)
+    ref = rates[idx300]
+    sus_data[p] = [r / ref for r in rates]
+
+# === 3) PLOT ===
+fig, axes = plt.subplots(nrows=3, ncols=1, sharex=True, figsize=(6, 12))
+
+for ax, p in zip(axes, promoters):
+    ax.plot(A_values, sus_data[p], "o-", lw=2)
+    ax.set_ylabel("Susceptibility\n(rate(A)/rate(300))")
+    ax.set_title(f"{p.capitalize()} promoter")
+    ax.grid(True, which="both", linestyle=":")
+    
+axes[-1].set_xlabel("DNA stiffness A (pN·nm)")
+plt.tight_layout()
+plt.show()
+
+

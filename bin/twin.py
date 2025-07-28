@@ -28,6 +28,7 @@ cmd = " ".join(sys.argv)
 f.output_variables(cmd, modelP, simuP)
 # writing out cmd line, parameters and variables (and their value)
 
+
 # RUNNING
 if simuP.promoter_to_follow:
     f.generate_run_follow_promoter(modelP, simuP)

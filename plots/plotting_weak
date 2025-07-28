@@ -1,0 +1,46 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1) Configuration
+promoter = "weak"
+base_dir = "results/figure3B"
+distances = [250, 300, 500, 1000, 2000, 3205]
+target_transcripts = 10000
+
+# 2) Load rates at exactly 10k transcripts
+rates = {}
+for d in distances:
+    fn = os.path.join(base_dir, promoter, f"tss_{d}", "mean_properties.txt")
+    if os.path.isfile(fn):
+        df = pd.read_csv(fn, sep='\t')
+        row = df[df['transcripts_nb'] == target_transcripts]
+        rate = float(row['prod_rate']) if not row.empty else np.nan
+    else:
+        rate = np.nan
+    rates[d] = rate
+
+# 3) Compute susceptibility = rate(d) / rate(250)
+rate_250 = rates[250]
+sus = {d: rates[d] / rate_250 for d in distances}
+
+# 4) Build DataFrame (optional print-out)
+df = pd.DataFrame([
+    {"Distance(bp)": d, "Prod_rate_10k": rates[d], "Susceptibility": sus[d]}
+    for d in distances
+])
+print(df.to_string(index=False))
+
+# 5) Plot
+plt.figure(figsize=(6,4))
+plt.plot(distances, [sus[d] for d in distances], marker='o', linestyle='-')
+plt.xscale('log')
+plt.xlabel("Upstream distance d (bp)")
+plt.ylabel("Upstream susceptibility\n(rate(d) / rate(250))")
+plt.title(f"Weak promoter susceptibility at {target_transcripts} transcripts")
+plt.grid(True, which='both', linestyle=':')
+plt.tight_layout()
+plt.show()
+
+

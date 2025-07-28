@@ -1,0 +1,124 @@
+# test_topo1_cycle.py
+import os, sys
+
+# Diretório onde está este script:
+root = os.path.dirname(__file__)
+# Adiciona o src/ ao caminho de módulos
+sys.path.insert(0, os.path.join(root, "src"))
+import numpy as np
+from param_var import parsing_cmd, ModelParam, SimuParam, RNAP
+from functions import (
+    update_presence_topo1_spec,
+    binding_stage,
+    oc_formation_stage,
+    topo1_unbinding_stage,
+)
+
+# ------------------------------------
+# 1. Cria parâmetros de exemplo
+class DummyArgs:
+    # GENE
+    gene_tss            = 55
+    gene_L              = 900
+    gene_Ldown          = 320
+
+    # PROMOTER
+    promoter_kb         = 1.0
+    promoter_ko         = 1.0
+    promoter_sigma_o    = 1
+    promoter_ke         = 100.0
+
+    # RNAP
+    rnap_vm             = 25.0
+    rnap_torque_stall   = 18.5
+    rnap_excluded_length= 30.0
+
+    # DNA
+    dna_A               = 300.0
+
+    # GYRASE
+    gyrase_lambda_ns    = 1e-4
+    gyrase_Lambda_s     = 2.0
+
+    # TOPOI
+    topoI_sigma_active  = -0.05
+    topoI_lambda_ns     = 1e-4
+    topoI_Lambda_s      = 1.0
+    topoI_k_unbind      = 0.1  # teste 0.1, 1, 5…
+
+    # Coarse graining
+    coarse_g_dx         = 1.0
+
+    # SIMULATION (esses são só para pegar no SimuParam, mas não realmente usados)
+    verbose             = False
+    simup_verbose_every = 1000
+    simup_Niterations   = int(1e6)
+    simup_Ntranscripts_max = int(1e4)
+    simup_Nevery_transcripts = 1000
+
+    # ARGPARSE flags
+    rseed               = None
+    f                   = False
+    output_folder       = "dummy"
+    promfollow          = False
+
+
+# Monta modelP e um Trajectory simplificado
+args = DummyArgs()
+modelP = ModelParam(args)
+
+# Contadores globais
+bind_count = 0
+unbind_count = 0
+
+# Dummy structures para passagem
+class DummyTraj:
+    niter = 0
+    time = 0
+    ref_binding_time = 0
+    b2b_times = {"n":0,"mean":0}
+    ocf_times = {"n":0,"mean":0}
+traj = DummyTraj()
+nextevent2iter = {"b":0,"oc":0,"esc":0}
+
+# Tamanho da “fila” de RNAPs  
+RNAP_list = []
+
+# ------------------------------------
+# 2. Loop curto de 1000 iterações
+for step in range(1000):
+    # 2.1 Reset do sítio (legado vs sítio-único)
+    update_presence_topo1_spec(modelP, RNAP_list)
+
+    # 2.2 Simula chegada ao promoter?
+    if step == nextevent2iter["b"]:
+        binding_stage(modelP, RNAP_list, traj, nextevent2iter)
+
+    # 2.3 Conta binds feitos em OC formation
+    if step == nextevent2iter["oc"]:
+        # antes de chamar, capta tamanho da lista
+        before = len(RNAP_list)
+        oc_formation_stage(modelP, RNAP_list, traj, nextevent2iter)
+        # se len aumentou e topo1_bound do último é True → bind ocorreu
+        if len(RNAP_list)>=before:
+            rnap = RNAP_list[-1]
+        else:
+            # se não, bind no mesmo RNAP
+            rnap = RNAP_list[-1]
+        if rnap.topo1_bound:
+            bind_count += 1
+
+    # 2.4 Simula unbinding
+    topo1_unbinding_stage(modelP, RNAP_list)
+    # conta quantos agora estão unbound (forçou um unbind?)
+    unbound_now = sum(not r.topo1_bound for r in RNAP_list)
+    if unbound_now > 0:
+        unbind_count += unbound_now
+
+    # 2.5 Agenda próximo binding trial (pra simplificar)
+    nextevent2iter["b"] = step + np.random.randint(1,10)
+    nextevent2iter["oc"] = step + np.random.randint(1,10)
+
+# ------------------------------------
+print(f"Total bind events detectados:   {bind_count}")
+print(f"Total unbind events detectados: {unbind_count}")

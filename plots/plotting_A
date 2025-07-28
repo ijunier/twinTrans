@@ -1,0 +1,36 @@
+#!/usr/bin/env python3
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1) CONFIGURE
+promoter = "medium"
+base_dir = os.path.join("results", "figure3A", "figure3A", "mediumA")
+A_values = [200, 233, 267, 300, 333, 367]
+target_transcripts = 10000
+
+# 2) LOAD RATES AT 10k TRANSCRIPTS
+rates = []
+for A in A_values:
+    fn = os.path.join(base_dir, f"A_{A}", "mean_properties.txt")
+    df = pd.read_csv(fn, sep='\t')
+    row = df[df['transcripts_nb'] == target_transcripts]
+    rate = float(row['prod_rate'].iloc[0])
+    rates.append(rate)
+
+# 3) CALCULATE SUSCEPTIBILITY = rate(A)/rate(200)
+baseline = rates[0]
+susceptibility = [r / baseline for r in rates]
+
+# 4) PLOT
+plt.figure(figsize=(6, 4))
+plt.plot(A_values, susceptibility, 'o-', linewidth=2)
+plt.xlabel("DNA stiffness A (pN·nm)")
+plt.ylabel("Upstream susceptibility\n(rate(A) / rate(200))")
+plt.title("Medium Promoter: Susceptibility vs A")
+plt.grid(True, which='both', linestyle=':')
+plt.xlim(min(A_values), max(A_values))
+plt.tight_layout()
+plt.show()
+

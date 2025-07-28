@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ========== 1) CONFIGURAÇÃO ==========
+BASE_DIRS = [
+    "results/valores_k6",  # Medium promoter
+    "results/valores_k7",  # Weak promoter
+    "results/valores_k8",  # Strong promoter
+]
+LABELS = {
+    "valores_k6": "Medium promoter",
+    "valores_k7": "Weak promoter",
+    "valores_k8": "Strong promoter",
+}
+# Defina aqui, para cada conjunto, os 3 parâmetros (kb, ko, ke) usados na simulação:
+PROM_PARAMS = {
+    "valores_k6": {"kb": 0.453,   "ko": 0.32,   "ke": 100},
+    "valores_k7": {"kb": 0.64,   "ko": 0.04,   "ke": 100},
+    "valores_k8": {"kb": 0.32,   "ko": 3.62,   "ke": 100},
+}
+
+
+GENE_LENGTH = 900.0   # bp
+MAX_N       = 10000   # última linha a pegar
+
+plt.figure(figsize=(6,4))
+
+# ========== 2) PARA CADA PASTA valores_k* ==========
+for base in BASE_DIRS:
+    key = os.path.basename(base)
+    kb, ko, ke = (PROM_PARAMS[key][p] for p in ("kb","ko","ke"))
+    # tempo total médio do ciclo de iniciação:
+    tau = 5/kb + 1/ko + 1/ke
+
+    ks, velocities = [], []
+    for nome in sorted(os.listdir(base)):
+        if not nome.startswith("k_"):
+            continue
+
+        # extrai valor numérico de k_unbind
+        try:
+            k_unbind = float(nome.split("_",1)[1])
+        except:
+            continue
+
+        fn = os.path.join(base, nome, "mean_properties.txt")
+        if not os.path.isfile(fn):
+            continue
+
+        df = pd.read_csv(fn, sep=r"\s+")
+        row = df[df["transcripts_nb"] == MAX_N]
+        if row.empty:
+            continue
+
+        mean_elong = row["mean_elong_time"].iloc[0]
+        vel = GENE_LENGTH / mean_elong
+
+        ks.append(k_unbind)
+        velocities.append(vel)
+
+    # ordena
+    paired = sorted(zip(ks, velocities), key=lambda x: x[0])
+    ks_sorted, vs_sorted = map(np.array, zip(*paired))
+
+    # eixo adimensional
+    x_adim = ks_sorted * tau
+
+    plt.plot(x_adim, vs_sorted, marker="o", lw=2, label=LABELS[key])
+
+# ========== 3) FORMATAÇÃO ==========
+plt.xscale("log")
+plt.xlabel(r"$k_{\mathrm{unbind}}\,\tau$")
+plt.ylabel("Velocity (pb/s)")
+plt.title("Elongation Velocity vs adimensional $k_{unbind}\\tau$\n" +
+          r"($\tau = 1/k_b + 1/k_o + 1/k_e$)")
+plt.grid(True, which="both", ls=":")
+plt.legend(title="Promoter strength")
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
+

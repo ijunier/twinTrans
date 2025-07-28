@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =====================
+# 1) CONFIGURAÇÃO
+# =====================
+BASE_DIRS   = [
+    "results/valores_k6",
+    "results/valores_k7",
+    "results/valores_k8",
+]
+GENE_LENGTH = 900.0  # em pb
+MAX_N       = 10000
+
+plt.figure(figsize=(6,4))
+
+# =====================
+# 2) PARA CADA PASTA valores_k*
+# =====================
+for base in BASE_DIRS:
+    ks = []
+    velocities = []
+
+    for nome in sorted(os.listdir(base)):
+        if not nome.startswith("k_"):
+            continue
+
+        pasta = os.path.join(base, nome)
+        fn = os.path.join(pasta, "mean_properties.txt")
+        if not os.path.isfile(fn):
+            print(f"Aviso: não encontrei {fn}")
+            continue
+
+        # extrai valor de k do nome da pasta
+        try:
+            k_val = float(nome.split("_", 1)[1])
+        except:
+            print(f"Aviso: não consegui converter '{nome}' em float")
+            continue
+
+        df = pd.read_csv(fn, delim_whitespace=True)
+        row = df[df["transcripts_nb"] == MAX_N]
+        if row.empty:
+            print(f"Aviso: não achei registro para transcripts_nb == {MAX_N} em {fn}")
+            continue
+
+        mean_elong = row["mean_elong_time"].iloc[0]
+        vel = GENE_LENGTH / mean_elong
+
+        ks.append(k_val)
+        velocities.append(vel)
+
+    # ordena por k
+    paired = sorted(zip(ks, velocities), key=lambda x: x[0])
+    ks_sorted, vs_sorted = zip(*paired)
+
+    # plota a curva para este conjunto
+    label_map = {
+    "valores_k6": "Medium promoter",
+    "valores_k7": "Weak promoter",
+    "valores_k8": "Strong promoter",
+}
+    key = os.path.basename(base)
+    label = label_map.get(key, key)
+
+
+    #label = os.path.basename(base)
+    plt.plot(ks_sorted, vs_sorted, marker="o", lw=2, label=label)
+
+# =====================
+# 3) FORMATAR GRÁFICO
+# =====================
+plt.xscale("log")
+plt.xlabel("k_unbinding (s⁻¹)")
+plt.ylabel("Velocity (pb/s)")
+plt.title("Elongation Velocity vs k_unbinding\npara valores_k6, valores_k7 e valores_k8")
+plt.grid(True, which="both", ls=":")
+plt.legend(title="Conjunto")
+plt.tight_layout()
+plt.show()

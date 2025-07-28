@@ -1,0 +1,73 @@
+# test_statistical_dlk.py
+import os
+import sys
+
+# ─── Ajusta o import para encontrar sua pasta src ───
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "src")))
+
+import numpy as np
+from param_var import ModelParam, RNAP
+from functions import topo_stage_RNAPpresent, DLk_TopoI
+
+def main():
+    # ─── Construção de um ModelParam mínimo ───
+    class A: pass
+    args = A()
+
+    # Campos obrigatórios para ModelParam
+    args.dna_A               = 300        # pN·nm
+    args.gene_tss            = 55         # posição do TSS
+    args.rnap_excluded_length= 30         # comprimento excluído pelo RNAP
+    args.gene_L              = 200        # tamanho do gene
+    args.gene_Ldown          = 320        # região downstream
+    args.promoter_kb         = 1.0        # promoter binding rate
+    args.promoter_ko         = 1.0        # promoter opening rate
+    args.promoter_sigma_o    = -0.05      # sigma threshold
+    args.promoter_ke         = 100.0      # escape rate
+    args.rnap_vm             = 25.0       # velocidade de translocação
+    args.rnap_torque_stall   = 18.5       # torque de stall
+    args.topoI_lambda_ns     = 0.05       # taxa ns topoisomerase I
+    args.topoI_Lambda_s      = 1.0        # taxa s topoisomerase I
+    args.topoI_sigma_active  = -0.05      # limite de sigma ativo
+    args.gyrase_lambda_ns    = 1e-4       # taxa ns girase
+    args.gyrase_Lambda_s     = 2.0        # taxa s girase
+    args.coarse_g_dx         = 1.0        # passo espacial
+
+    modelP = ModelParam(args)
+
+    # ─── Ajustes específicos do teste ───
+    modelP.coarse_g.p_topoI_ns_per_bp = 1e-3   # probabilidade ns por bp
+    modelP.coarse_g.p_topoI_s         = 0.50  # probabilidade “spec”
+
+    # Um RNAP de teste
+    rnap = RNAP()
+    rnap.topo1_bound = 1  # força o caminho “spec”
+
+    # ─── Estatísticas ───
+    N             = 100_000
+    total_ns      = 0
+    total_domain  = 0.0
+    total_spec    = 0
+
+    # Use um valor fixo de domínio para simplificar
+    domain_length = 1000.0
+
+    for _ in range(N):
+        # não‐específico
+        total_ns     += DLk_TopoI(domain_length, rnap, modelP)
+        total_domain += domain_length
+
+        # específico
+        total_spec   += DLk_TopoI("spec", rnap, modelP)
+
+    # ─── Cálculos teóricos vs. observados ───
+    mean_ns_obs   = total_ns / N
+    mean_ns_exp   = modelP.coarse_g.p_topoI_ns_per_bp * (total_domain / N)
+    freq_spec_obs = total_spec / N
+    freq_spec_exp = modelP.coarse_g.p_topoI_s
+
+    print(f"NSPEC médio observado:     {mean_ns_obs:.4f} ≈ esperado: {mean_ns_exp:.4f}")
+    print(f"SPEC frequência observada: {freq_spec_obs:.4f} ≈ p_topoI_s: {freq_spec_exp:.4f}")
+
+if __name__ == "__main__":
+    main()

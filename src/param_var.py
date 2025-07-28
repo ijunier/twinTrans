@@ -88,6 +88,7 @@ def parsing_cmd():
         default=100,
     )
 
+
     # RNAP
     parser.add_argument(
         "-vm",
@@ -139,6 +140,17 @@ def parsing_cmd():
         help="sigma below which TopoI is active (no unit)",
         default=-0.05,
     )
+
+    parser.add_argument(
+        "-ku",
+        metavar="X",
+        dest="topoI_k_unbind",
+        type=float,
+        help="Unbinding Rate of TopoI linked with RNAP (specifique) # unity: s^-1",
+        default=0.001,
+    )
+
+
 
     # GYRASE
     parser.add_argument(
@@ -277,6 +289,9 @@ class ModelParam:
         self.coarse_g = self._CoarseGraining(
             args, self.dna, self.rnap, self.topoI, self.gyrase
         )
+        #MODIFICATION
+        self.k_unbind = self.topoI.k_unbind #NEW K_UNBIDING
+        
 
     class _DNA:
         """DNA microscopic parameters"""
@@ -337,6 +352,8 @@ class ModelParam:
             self.ke_s = 1 / self.ke
             # corresponding scale (s)
 
+
+
     class _RNAP:
         """RNAP microscopic parameters"""
 
@@ -353,6 +370,7 @@ class ModelParam:
             self.sigma_stall = -self.torque_stall / dna.A
             # (sigma's are signed here)
 
+
     class _TopoI:
         """TopoI activity"""
 
@@ -366,6 +384,9 @@ class ModelParam:
 
             self.Lambda_s = args.topoI_Lambda_s
             # specific (~ at the promoter)
+
+            self.k_unbind = args.topoI_k_unbind  
+            # Unbinding Rate of TopoI linked with RNAP (specifique) # unity: s^-1
 
     class _Gyrase:
         """Gyrase activity
@@ -439,6 +460,7 @@ class RNAP:
         # linking number
         self.sigma = {'up':None, 'down':None}
         # corresponding supercoiling density
+
         
 
 class Trajectory:
@@ -470,3 +492,24 @@ class Trajectory:
 
         self.sigma_at_ocf = []
         # supercoiling density at of OC formation stage
+
+class Topo1Spec: #modification
+    """
+    
+        """
+    bound_state: int = 0
+
+    @classmethod
+    def bind(cls):
+        cls.bound_state = 1
+
+    @classmethod
+    def unbind(cls):
+        cls.bound_state = 0
+
+    @classmethod
+    def is_bound(cls) -> bool:
+        return cls.bound_state == 1
+    
+
+    

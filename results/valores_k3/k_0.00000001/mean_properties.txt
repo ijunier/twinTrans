@@ -1,0 +1,3 @@
+transcripts_nb	time	prod_rate	mean_prod_time	mean_bind_time	mean_ocf_time	mean_esc_time	mean_init_time	mean_elong_time
+1000	8733.560000	0.114501	8.558839	8.611321	3.128797	0.040039	3.168836	122.128000
+2000	17323.120000	0.115453	8.574207	8.599503	3.133995	0.040020	3.174015	122.336360

@@ -1,0 +1,49 @@
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# === CONFIGURATION ===
+# Upstream distances
+distances = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000]
+# DNA stiffness values
+A_values = [200, 233, 267, 300, 333, 367]
+# Base results directory template
+root = "results/promfollow"
+# Promoter-follow subdir template for each A and distance
+subdir_A = "A_{}"
+subdir_tss = "tss_{}"
+# Repression threshold
+sigma_o = -0.05
+
+# === COMPUTE FOR EACH A ===
+repressed = {}  # will hold lists of repressed_time per distance
+
+for A in A_values:
+    times_for_A = []
+    for d in distances:
+        fn = os.path.join(root, subdir_A.format(A), subdir_tss.format(d), "traj_promoter.txt")
+        if not os.path.isfile(fn):
+            times_for_A.append(np.nan)
+            continue
+        df = pd.read_csv(fn, delim_whitespace=True)
+        t = df["time"].values
+        sigma = df["sigma"].values
+        dt = np.diff(t, prepend=0.0)
+        total_repressed = dt[sigma > sigma_o].sum()
+        times_for_A.append(total_repressed)
+    repressed[A] = times_for_A
+
+# === PLOT ONE PANEL PER A ===
+fig, axes = plt.subplots(nrows=len(A_values), ncols=1, figsize=(6, len(A_values)*2.5), sharex=True)
+
+for ax, A in zip(axes, A_values):
+    ax.plot(distances, repressed[A], marker='o', linestyle='-')
+    ax.set_xscale('log')
+    ax.set_ylabel("Time σ > σ₀\n(seconds)")
+    ax.set_title(f"A = {A} pN·nm")
+    ax.grid(True, which='both', linestyle=':')
+
+axes[-1].set_xlabel("Upstream distance d (bp)")
+plt.tight_layout()
+plt.show()
