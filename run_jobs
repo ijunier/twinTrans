@@ -5,34 +5,34 @@ from pathlib import Path
 from joblib import Parallel, delayed
 
 # =============================
-# CONFIGURAÇÃO DOS PARÂMETROS
+# CONFIGURATION DES PARAMETRES
 # =============================
-# taxa de OC formation a varrer
+# taux de OC formation
 ko_values   = [0.04, 0.32]
-# taxa de unbinding de TopoI a varrer
+# taux de unbinding de TopoI 
 kun_values  = [0, 1e-2]
-# distâncias TSS a varrer
+# distânces TSS 
 tss_values  = [3000, 4000]
 
-# fixos
+# fixex
 kb_value = 0.453
 so_value = -0.04
 ke_value = 100
 
-# número de jobs em paralelo (ajuste conforme disponível)
+# Number of processes in paralelel 
 n_jobs = 8
 
-# caminho para o twin.py
+# Way to twin.py
 twin_script = Path("bin") / "twin.py"
 
 def run_simulation(ko, kun, tss):
-    outdir = Path("results_batch") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
+    outdir = Path("results_batch1") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
     outdir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
         "python3", str(twin_script), str(outdir),
         "-f",
-        # parâmetros FIXOS
+        # parametres FIXES
         "-kb", str(kb_value),
         "-so", str(so_value),
         "-ke", str(ke_value),
@@ -40,15 +40,15 @@ def run_simulation(ko, kun, tss):
         "-ko", str(ko),
         "-ku", str(kun),
         "-tss", str(tss),
-        "-Nt", "10000",    # máximo de transcritos
-              # máximo de iterações
+        "-Nt", "10000",    # maximum de transcripts
+              
     ]
 
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return ko, kun, tss, proc.returncode, proc.stdout, proc.stderr
 
 if __name__ == "__main__":
-    # monta todas as combinações
+    # Create the combinations
     combos = [
         (ko, kun, tss)
         for ko in ko_values
@@ -56,20 +56,20 @@ if __name__ == "__main__":
         for tss in tss_values
     ]
 
-    # executa em paralelo
+    # executer en paralelel
     results = Parallel(n_jobs=n_jobs)(
         delayed(run_simulation)(ko, kun, tss)
         for ko, kun, tss in combos
     )
 
     # relatório final
-    print("\n=== Resumo das simulações ===")
+    print("\n=== RESUMÉ DES SIMULATIONS ===")
     for ko, kun, tss, code, out, err in results:
         tag = f"ko={ko:<5} kun={kun:<6} tss={tss:<3}"
         if code != 0:
-            print(f"[ ERRO ] {tag} ➞ exit code {code}")
+            print(f"[ ERREUR ] {tag} ➞ exit code {code}")
             print(err)
         else:
             print(f"[   OK  ] {tag}")
-    print("\nTodas as simulações concluídas.")
+    print("\nTOUTES LES SIMULATIONS SONT FINIES")
 
