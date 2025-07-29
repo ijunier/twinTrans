@@ -9,13 +9,14 @@ from joblib import Parallel, delayed
 # CONFIGURATION DES PARAMETRES
 # =============================
 # taux de OC formation
-ko_values = np.round(np.logspace(np.log10(0.02), np.log10(5), num=15),6)
+
+
+ko_values  = np.round(np.logspace(np.log10(0.001), np.log10(5), num=15), 6)
 
 # taux de unbinding de TopoI 
-kun_values = np.round(np.logspace(-6, 1, num=15), 6)
-#kun_values  = [1e-6, 1e-5, 1e-4, 1e-3, 5e-3, 1e-2, 3e-2, 5e-2, 0.08, 1e-1, 0.12, 0.15, 0.2, 0.3, 0.4, 5e-1, 0.7, 0.8, 1, 1.3, 1.5, 2, 5, 10]
-# distânces TSS 
-tss_values  = [100, 5000]
+kun_values = np.round(np.logspace(np.log10(0.001), np.log10(5), num=15), 6)
+
+tss_values  = [100, 1000, 5000]
 
 # fixes
 kb_value = 0.453
@@ -30,7 +31,7 @@ n_jobs = 48
 twin_script = Path("bin") / "twin.py"
 
 def run_simulation(ko, kun, tss):
-    outdir = Path("results_arthurOfficial") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
+    outdir = Path("results_final") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
     outdir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
