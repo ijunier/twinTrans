@@ -19,7 +19,7 @@ kun_values = np.round(np.logspace(np.log10(0.001), np.log10(5), num=15), 6)
 tss_values  = [100, 1000, 5000]
 
 # fixes
-kb_value = 0.453
+kb_value = 100
 so_value = -0.04
 ke_value = 100
 Ld_value = 520
