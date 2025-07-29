@@ -1,38 +1,38 @@
-.\bin\twin.py .\results\TESTE\CLEITON -f -kb 0.453 -ko 0.32 -so -0.05 -ke 100 -tss 500 -Ld 520 -ku 0
+bin\twin.py results_batch\ko_0.04\kun_0\tss_4000 -f -kb 0.453 -so -0.04 -ke 100 -ko 0.04 -ku 0 -tss 4000 -Nt 10000
 
 ###########
 # General #
 ###########
-dna	<param_var.ModelParam._DNA object at 0x000002C3F01DBF50>
-gene	<param_var.ModelParam._Gene object at 0x000002C3F02C6590>
-promoter	<param_var.ModelParam._Promoter object at 0x000002C3E09A8B90>
-rnap	<param_var.ModelParam._RNAP object at 0x000002C3F0488B50>
-topoI	<param_var.ModelParam._TopoI object at 0x000002C3E09A8BD0>
-gyrase	<param_var.ModelParam._Gyrase object at 0x000002C3E0BEB510>
-coarse_g	<param_var.ModelParam._CoarseGraining object at 0x000002C3E094B590>
+dna	<param_var.ModelParam._DNA object at 0x000002178E1B4D90>
+gene	<param_var.ModelParam._Gene object at 0x000002178E4C48D0>
+promoter	<param_var.ModelParam._Promoter object at 0x000002178E354DD0>
+rnap	<param_var.ModelParam._RNAP object at 0x000002178E4C4710>
+topoI	<param_var.ModelParam._TopoI object at 0x000002178E3DBA10>
+gyrase	<param_var.ModelParam._Gyrase object at 0x000002178DD55290>
+coarse_g	<param_var.ModelParam._CoarseGraining object at 0x000002178E655B90>
 k_unbind	0.0
 
 ########
 # Gene #
 ########
-tss	500
-rnap_xi	485
-Lk0_rnap_xi	46.19047619047619
+tss	4000
+rnap_xi	3985
+Lk0_rnap_xi	379.5238095238095
 L	900
-Ldown	520
-term	1400
-L_domain	1920
-Lk0_domain	182.85714285714286
-Lk_domain	182.85714285714286
+Ldown	320
+term	4900
+L_domain	5220
+Lk0_domain	497.14285714285717
+Lk_domain	497.14285714285717
 
 ############
 # Promoter #
 ############
 kb	0.453
 kb_s	2.2075055187637966
-ko	0.32
-ko_s	3.125
-sigma_o	-0.05
+ko	0.04
+ko_s	25.0
+sigma_o	-0.04
 ke	100.0
 ke_s	0.01
 
@@ -84,4 +84,4 @@ promoter_to_follow	False
 Niterations	10000000000
 Ntranscripts_max	10000
 Nevery_transcripts	1000
-fo_out	.\results\TESTE\CLEITON
+fo_out	results_batch\ko_0.04\kun_0\tss_4000

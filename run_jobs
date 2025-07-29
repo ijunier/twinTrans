@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+import os
+import subprocess
+from pathlib import Path
+from joblib import Parallel, delayed
+
+# =============================
+# CONFIGURAÇÃO DOS PARÂMETROS
+# =============================
+# taxa de OC formation a varrer
+ko_values   = [0.04, 0.32]
+# taxa de unbinding de TopoI a varrer
+kun_values  = [0, 1e-2]
+# distâncias TSS a varrer
+tss_values  = [3000, 4000]
+
+# fixos
+kb_value = 0.453
+so_value = -0.04
+ke_value = 100
+
+# número de jobs em paralelo (ajuste conforme disponível)
+n_jobs = 8
+
+# caminho para o twin.py
+twin_script = Path("bin") / "twin.py"
+
+def run_simulation(ko, kun, tss):
+    outdir = Path("results_batch") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python3", str(twin_script), str(outdir),
+        "-f",
+        # parâmetros FIXOS
+        "-kb", str(kb_value),
+        "-so", str(so_value),
+        "-ke", str(ke_value),
+        # parâmetros VARIÁVEIS
+        "-ko", str(ko),
+        "-ku", str(kun),
+        "-tss", str(tss),
+        "-Nt", "10000",    # máximo de transcritos
+              # máximo de iterações
+    ]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return ko, kun, tss, proc.returncode, proc.stdout, proc.stderr
+
+if __name__ == "__main__":
+    # monta todas as combinações
+    combos = [
+        (ko, kun, tss)
+        for ko in ko_values
+        for kun in kun_values
+        for tss in tss_values
+    ]
+
+    # executa em paralelo
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(run_simulation)(ko, kun, tss)
+        for ko, kun, tss in combos
+    )
+
+    # relatório final
+    print("\n=== Resumo das simulações ===")
+    for ko, kun, tss, code, out, err in results:
+        tag = f"ko={ko:<5} kun={kun:<6} tss={tss:<3}"
+        if code != 0:
+            print(f"[ ERRO ] {tag} ➞ exit code {code}")
+            print(err)
+        else:
+            print(f"[   OK  ] {tag}")
+    print("\nTodas as simulações concluídas.")
+
