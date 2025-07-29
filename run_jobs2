@@ -31,7 +31,7 @@ n_jobs = 48
 twin_script = Path("bin") / "twin.py"
 
 def run_simulation(ko, kun, tss):
-    outdir = Path("results_final") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
+    outdir = Path("results_final_kb_0.453") / f"ko_{ko}" / f"kun_{kun}" / f"tss_{tss}"
     outdir.mkdir(parents=True, exist_ok=True)
 
     cmd = [
