@@ -1,0 +1,87 @@
+bin/twin.py results_final_kb_0.453/ko_0.805997/kun_0.438653/tss_100 -f -kb 0.453 -so -0.04 -ke 100 -Ld 520 -ko 0.805997 -ku 0.438653 -tss 100 -Nt 10000
+
+###########
+# General #
+###########
+dna	<param_var.ModelParam._DNA object at 0x713d1d7fe5a0>
+gene	<param_var.ModelParam._Gene object at 0x713d1d78f230>
+promoter	<param_var.ModelParam._Promoter object at 0x713d1ce63170>
+rnap	<param_var.ModelParam._RNAP object at 0x713d1ceaed20>
+topoI	<param_var.ModelParam._TopoI object at 0x713d1ceaeed0>
+gyrase	<param_var.ModelParam._Gyrase object at 0x713d1ceaecf0>
+coarse_g	<param_var.ModelParam._CoarseGraining object at 0x713d1d773860>
+k_unbind	0.438653
+
+########
+# Gene #
+########
+tss	100
+rnap_xi	85
+Lk0_rnap_xi	8.095238095238095
+L	900
+Ldown	520
+term	1000
+L_domain	1520
+Lk0_domain	144.76190476190476
+Lk_domain	144.76190476190476
+
+############
+# Promoter #
+############
+kb	0.453
+kb_s	2.2075055187637966
+ko	0.805997
+ko_s	1.2406994070697535
+sigma_o	-0.04
+ke	100.0
+ke_s	0.01
+
+########
+# RNAP #
+########
+excluded_length_elongation	30
+vm	25
+torque_stall	18.5
+sigma_stall	-0.06166666666666667
+
+#########
+# TopoI #
+#########
+sigma_active	-0.05
+lambda_ns	0.0001
+Lambda_s	1
+k_unbind	0.438653
+
+##########
+# Gyrase #
+##########
+lambda_ns	0.0001
+Lambda_s	2
+
+#######
+# DNA #
+#######
+n	10.5
+A	300
+
+###################
+# Coarse graining #
+###################
+dx	1
+dLk	0.09523809523809523
+tau_0	0.04
+p_topoI_ns_per_bp	4.000000000000001e-06
+p_topoI_s	0.04
+p_gyrase_ns_per_bp	2.0000000000000003e-06
+p_gyrase_s	0.04
+
+##############
+# Statistics #
+##############
+verbose	False
+verbose_every	1000
+promoter_to_follow	False
+Niterations	10000000000
+Ntranscripts_max	10000
+Nevery_transcripts	1000
+fo_out	results_final_kb_0.453/ko_0.805997/kun_0.438653/tss_100
