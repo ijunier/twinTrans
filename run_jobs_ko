@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+import os
+import numpy as np
+import subprocess
+from pathlib import Path
+from joblib import Parallel, delayed
+
+# =============================
+# CONFIGURATION DES PARAMETRES
+# =============================
+# taux de OC formation (anteriormente ko_values -> agora kb_values)
+
+kb_values  = np.round(np.logspace(np.log10(0.001), np.log10(5), num=15), 6)
+
+# taux de unbinding de TopoI 
+kun_values = np.round(np.logspace(np.log10(0.001), np.log10(5), num=15), 6)
+
+tss_values  = [100, 1000, 5000]
+
+# fixes (anteriormente kb_value -> agora ko_value)
+ko_value = 100
+so_value = -0.04
+ke_value = 100
+Ld_value = 520
+
+# Number of processes en parallèle 
+n_jobs = 48
+
+# Way to twin.py
+twin_script = Path("bin") / "twin.py"
+
+def run_simulation(kb, kun, tss):
+    outdir = Path("results_final_ko_100") / f"kb_{kb}" / f"kun_{kun}" / f"tss_{tss}"
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "python3", str(twin_script), str(outdir),
+        "-f",
+        # paramètres FIXES (troca ko_value)
+        "-ko", str(ko_value),
+        "-so", str(so_value),
+        "-ke", str(ke_value),
+        "-Ld", str(Ld_value),
+        # parâmetros VARIÁVEIS (troca kb em loop)
+        "-kb", str(kb),
+        "-ku", str(kun),
+        "-tss", str(tss),
+        "-Nt", "10000",    # maximum de transcripts
+    ]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    return kb, kun, tss, proc.returncode, proc.stdout, proc.stderr
+
+if __name__ == "__main__":
+    # Create the combinations (swap de ko por kb)
+    combos = [
+        (kb, kun, tss)
+        for kb in kb_values
+        for kun in kun_values
+        for tss in tss_values
+    ]
+
+    # exécuter en parallèle
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(run_simulation)(kb, kun, tss)
+        for kb, kun, tss in combos
+    )
+
+    # relatório final
+    print("\n=== RESUMÉ DES SIMULATIONS ===")
+    for kb, kun, tss, code, out, err in results:
+        tag = f"kb={kb:<5} kun={kun:<6} tss={tss:<3}"
+        if code != 0:
+            print(f"[ ERREUR ] {tag} ➞ exit code {code}")
+            print(err)
+        else:
+            print(f"[   OK  ] {tag}")
+    print("\nTOUTES LES SIMULATIONS SONT FINIES")

@@ -1,0 +1,56 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Sua tabela (A=300, já calculada)
+tss_values = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+P_OC =     np.array([0.746, 0.767, 0.780, 0.796, 0.843, 0.943, 0.982, 0.993, 0.998, 0.998, 1.000, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000])
+
+# Parâmetros do sistema
+kb = 0.453
+ko = 0.32
+ke = 100
+v_max = 25.0
+gene_length = 900.0
+Lambda_s = 1
+G = 18.5
+A = 300
+dx = 1.0
+n = 10.5
+
+T_total_pred = []
+for tss, P_OC_ in zip(tss_values, P_OC):
+    sigma_stall = -G/A
+    delta_x_stall = abs(sigma_stall) * tss
+    N_stall = gene_length / delta_x_stall
+    overshoot_sigma = dx / tss
+    relax_sigma_per_event = 1 / (tss / n)
+    n_relax_stall = np.ceil(overshoot_sigma / relax_sigma_per_event)
+    t_stall_per_stall = n_relax_stall / Lambda_s
+    T_stall_total = N_stall * t_stall_per_stall
+    T_elong_no_stalls = gene_length / v_max
+    P_stall_model = T_stall_total / (T_elong_no_stalls + T_stall_total)
+    P_run = 1 - P_stall_model
+    v_eff = v_max * P_run
+    T_elong = gene_length / v_eff
+    T_init = 1/kb + 1/(ko * P_OC_) + 1/ke
+    T_total_pred.append(T_init + T_elong)
+
+T_total_pred = np.array(T_total_pred)
+
+# Se quiser comparar com os valores já impressos na tabela anterior:
+T_total_tabela = np.array([188.35, 115.27, 100.60, 90.79, 71.11, 56.13, 48.70, 46.23, 45.00, 44.27, 43.17, 42.80, 42.56, 42.39, 42.25, 42.15, 42.07])
+
+plt.figure(figsize=(8,5))
+plt.plot(tss_values, T_total_pred, marker='o', label='Modelo re-cálculo')
+plt.plot(tss_values, T_total_tabela, marker='s', linestyle='--', label='Modelo TABELA')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo total previsto (s)')
+plt.xscale('log')
+plt.title('Tempo total predito vs tss (A=300)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+print('tss (bp) | P_OC | Tempo total previsto (modelo recalculado) | Tempo total da tabela')
+for tss, Poc, Ttot1, Ttot2 in zip(tss_values, P_OC, T_total_pred, T_total_tabela):
+    print(f'{int(tss):6d} | {Poc:5.3f} | {Ttot1:8.2f} | {Ttot2:8.2f}')

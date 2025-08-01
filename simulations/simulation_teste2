@@ -1,0 +1,42 @@
+import numpy as np
+
+# Parâmetros
+tss = 500  # ou 1000
+gene_length = 900
+v_max = 25.0
+sigma_stall = -18.5/300.0
+n = 10.5
+L_dom_bp = tss
+L_dom_Lk = L_dom_bp / n
+dx = 1.0
+
+Lambda_s = 1  # s^-1
+
+N_trials = 100 # Simulações para média
+
+mean_T = []
+
+for _ in range(N_trials):
+    x = 0
+    sigma = 0
+    t = 0
+    while x < gene_length:
+        # Elongate until stall
+        run_steps = 0
+        while abs(sigma) < abs(sigma_stall) and x < gene_length:
+            x += dx
+            run_steps += 1
+            # Cada bp avança sigma em 1/(L_dom_bp)
+            sigma += dx / L_dom_bp
+            t += dx / v_max
+
+        # Stall: relax until sigma < sigma_stall
+        while abs(sigma) >= abs(sigma_stall):
+            # Sorteia tempo de espera exponencial
+            t += np.random.exponential(1/Lambda_s)
+            # Relaxa 1 volta (reduz sigma em 1/L_dom_Lk)
+            sigma -= 1 / L_dom_Lk
+
+    mean_T.append(t)
+
+print(f"Mean elongation time (estocástica): {np.mean(mean_T):.1f} s")

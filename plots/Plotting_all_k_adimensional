@@ -33,7 +33,7 @@ for base in BASE_DIRS:
     key = os.path.basename(base)
     kb, ko, ke = (PROM_PARAMS[key][p] for p in ("kb","ko","ke"))
     # tempo total médio do ciclo de iniciação:
-    tau = 5/kb + 1/ko + 1/ke
+    tau = 1/kb + 1/ko + 1/ke
 
     ks, velocities = [], []
     for nome in sorted(os.listdir(base)):

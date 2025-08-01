@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # === 1) CONFIGURATION ===
-A = 200
+A = 300
 distances = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000]
 root       = "results/promfollow"
 subdir_tss = "tss_{}"

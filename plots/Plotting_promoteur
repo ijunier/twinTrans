@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 1) Point to your data file
-folder = "results/promfollow/A_200/tss_100"
+folder = "results/promfollow/A_300/tss_1000"
 fn     = os.path.join(folder, "traj_promoter.txt")
 
 # 2) Load it

@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- seus dados ---
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+P_OC_array = np.array([0.746,0.767,0.780,0.796,0.843,0.943,0.982,0.993,0.998,0.998,1.000,0.999,1.000,1.000,1.000,1.000,1.000])
+T_real     = np.array([108.995808,105.930240,103.515472,102.044444, 94.464468,
+                       82.989236, 75.767280, 70.988056, 68.822540, 67.034956,
+                       62.073332, 59.406952, 57.413964, 55.752504, 54.484696,
+                       53.625760, 52.447332])
+
+# --- renewal model original ---
+def T_renewal(kb, ko, ke, v_max, L, P_OC):
+    T_init       = 1/kb + 1/(ko * P_OC) + 1/ke
+    T_elong_free = L / v_max
+    # só dividimos por P_OC (chance de não travar)
+    return T_init + T_elong_free / P_OC
+
+# parâmetros que você já conhece
+kb, ko, ke = 0.453, 0.32, 100
+v_max, L   = 25.0, 900.0
+
+# calcula vetor predito
+T_pred0 = np.array([T_renewal(kb, ko, ke, v_max, L, p) for p in P_OC_array])
+
+# faz o ajuste linear T_real ≃ a*T_pred0 + b
+a, b = np.polyfit(T_pred0, T_real, 1)
+print(f"Ajuste linear: a = {a:.3f}, b = {b:.3f} s")
+
+# corrige
+T_pred = a*T_pred0 + b
+
+# plota tudo junto
+plt.figure(figsize=(8,5))
+plt.plot(tss_array, T_real,    'o-', label="Simulação",      color='C2')
+plt.plot(tss_array, T_pred0,   '--',  label="Renewal (orig.)", color='gray', alpha=0.6)
+plt.plot(tss_array, T_pred,    's-',  label="Renewal (fit lin.)", color='C1')
+plt.xscale('log')
+plt.xlabel("TSS (bp)")
+plt.ylabel("Tempo total (s)")
+plt.title("Ajuste linear do modelo renewal vs simulação")
+plt.legend()
+plt.grid(which='both', ls=':')
+plt.tight_layout()
+plt.show()

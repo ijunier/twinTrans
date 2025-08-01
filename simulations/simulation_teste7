@@ -1,0 +1,107 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ---- Parâmetros padrão ----
+params = {
+    'kb': 0.453,
+    'ko': 0.32,
+    'ke': 100,
+    'v_max': 25.0,
+    'gene_length': 900.0,
+    'Lambda_s': 1,
+    'G': 18.5,
+    'A': 300,
+    'dx': 1.0,
+    'n': 10.5
+}
+
+# ---- Dados ----
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+P_OC_array = np.array([0.746, 0.767, 0.780, 0.796, 0.843, 0.943, 0.982, 0.993, 0.998, 0.998, 1.000, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+
+# ---- Modelo tradicional (mean-field) ----
+def tempo_total_model(
+    kb, ko, ke, v_max, gene_length, Lambda_s, G, A, tss, dx, n, P_OC
+):
+    sigma_stall = -G/A
+    delta_x_stall = abs(sigma_stall) * tss
+    N_stall = gene_length / delta_x_stall if delta_x_stall > 0 else 0
+    overshoot_sigma = dx / tss
+    relax_sigma_per_event = 1 / (tss / n)
+    n_relax_stall = np.ceil(overshoot_sigma / relax_sigma_per_event) if tss > 0 else 0
+    t_stall_per_stall = n_relax_stall / Lambda_s if Lambda_s > 0 else 0
+    T_stall_total = N_stall * t_stall_per_stall
+    T_elong_no_stalls = gene_length / v_max
+    P_run = T_elong_no_stalls / (T_elong_no_stalls + T_stall_total) if (T_elong_no_stalls + T_stall_total) > 0 else 1
+    v_eff = v_max * P_run
+    T_elong = gene_length / v_eff
+    T_init = 1/kb + 1/(ko * P_OC) + 1/ke
+    T_total_pred = T_init + T_elong
+    return T_total_pred
+
+# ---- Modelo renewal/empírico ----
+def tempo_total_model_empirico(
+    kb, ko, ke, v_max, gene_length, P_OC
+):
+    T_init = 1/kb + 1/(ko * P_OC) + 1/ke
+    T_elong_free = gene_length / v_max
+    T_total_pred = T_init + T_elong_free / P_OC
+    return T_total_pred
+
+# ---- Modelo Poisson (novo) ----
+def tempo_total_model_poisson(
+    kb, ko, ke, v_max, gene_length, Lambda_s, G, A, tss, dx, n, P_OC
+):
+    sigma_stall = -G/A
+    delta_x_stall = abs(sigma_stall) * tss
+    lam = 1/delta_x_stall if delta_x_stall > 0 else 0
+    T_run = gene_length / v_max
+    overshoot_sigma = dx / tss
+    relax_sigma_per_event = 1 / (tss / n)
+    n_relax_stall = np.ceil(overshoot_sigma / relax_sigma_per_event) if tss > 0 else 0
+    t_stall_per_stall = n_relax_stall / Lambda_s if Lambda_s > 0 else 0
+    T_init = 1/kb + 1/(ko * P_OC) + 1/ke
+
+    # Chance de não stallar nunca
+    P0 = np.exp(-lam * gene_length)
+    # Média de stalls
+    E_k = lam * gene_length
+
+    # Tempo total médio real
+    T_total_pred = P0 * T_run + (1 - P0) * (T_run + E_k * t_stall_per_stall) + T_init
+    return T_total_pred
+
+# ---- Cálculo para arrays ----
+T_model_array = []
+T_model_empirico_array = []
+T_model_poisson_array = []
+for tss, Poc in zip(tss_array, P_OC_array):
+    p = params.copy()
+    p['tss'] = tss
+    p['P_OC'] = Poc
+    T_model_array.append(tempo_total_model(**p))
+    T_model_empirico_array.append(tempo_total_model_empirico(
+        p['kb'], p['ko'], p['ke'], p['v_max'], p['gene_length'], Poc
+    ))
+    T_model_poisson_array.append(tempo_total_model_poisson(**p))
+T_model_array = np.array(T_model_array)
+T_model_empirico_array = np.array(T_model_empirico_array)
+T_model_poisson_array = np.array(T_model_poisson_array)
+
+# ---- Plot ----
+plt.figure(figsize=(9,5))
+plt.plot(tss_array, T_model_array, label='Mean-field tradicional')
+plt.plot(tss_array, T_model_empirico_array, label='Renewal/empírico')
+plt.plot(tss_array, T_model_poisson_array, label='Poisson/Markov (novo)')
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo total (s)')
+plt.title('Comparação de modelos vs simulação')
+plt.legend()
+plt.tight_layout()
+plt.show()

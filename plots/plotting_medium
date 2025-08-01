@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 # 1) Configuration: switch to medium promoter
 promoter = "medium"
 base_dir = "results/figure3B"
-distances = [250, 300, 500, 1000, 2000, 3205]
+distances = [100, 200, 250, 300, 500, 1000, 2000, 3205,4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000,20000]
 target_transcripts = 10000
 
 # 2) Load rates at exactly 10k transcripts

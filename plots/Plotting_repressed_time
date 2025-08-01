@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # Upstream distances
 distances = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000, 8000, 10000, 12000, 14000, 16000, 18000, 20000]
 # DNA stiffness values
-A_values = [200, 233, 267, 300, 333, 367]
+A_values = [300]
 # Base results directory template
 root = "results/promfollow"
 # Promoter-follow subdir template for each A and distance

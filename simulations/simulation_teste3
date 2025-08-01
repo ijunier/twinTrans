@@ -1,0 +1,84 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Dados fornecidos (A=300)
+# tss (bp), tempo_total (n transcritos), n_cruzamentos, P_stall (% do tempo reprimido)
+dados = np.array([
+    [100,    47500, 12067, 25.40],
+    [200,    47500, 11073, 23.31],
+    [250,    47500, 10439, 21.98],
+    [300,    47500,  9687, 20.39],
+    [500,    47500,  7463, 15.71],
+    [1000,   47500,  2719,  5.72],
+    [2000,   47500,   843,  1.77],
+    [3000,   47500,   345,  0.73],
+    [4000,   47500,   118,  0.25],
+    [5000,   47500,   103,  0.22],
+    [8000,   47500,    10,  0.02],
+    [10000,  47500,    33,  0.07],
+    [12000,  47500,     0,  0.00],
+    [14000,  47500,    23,  0.05],
+    [16000,  47500,     0,  0.00],
+    [18000,  47500,     0,  0.00],
+    [20000,  47500,     0,  0.00]
+])
+
+tss_values = dados[:,0]
+P_stall = dados[:,3] / 100.0   # percentual para fração
+P_OC = 1 - P_stall
+
+# Parâmetros do sistema
+kb = 0.453
+ko = 0.32
+ke = 100
+v_max = 25.0
+gene_length = 900.0
+Lambda_s = 1
+G = 18.5
+A = 300
+dx = 1.0
+n = 10.5
+
+T_total_pred = []
+for tss, P_OC_ in zip(tss_values, P_OC):
+    # Sigma stall
+    sigma_stall = -G/A
+    # Delta x entre stalls
+    delta_x_stall = abs(sigma_stall) * tss
+    # Número de stalls
+    N_stall = gene_length / delta_x_stall
+    # Overshoot médio por stall
+    overshoot_sigma = dx / tss
+    relax_sigma_per_event = 1 / (tss / n)
+    n_relax_stall = np.ceil(overshoot_sigma / relax_sigma_per_event)
+    t_stall_per_stall = n_relax_stall / Lambda_s
+    # Tempo parado total
+    T_stall_total = N_stall * t_stall_per_stall
+    # Tempo de elongação sem stalls
+    T_elong_no_stalls = gene_length / v_max
+    # Fração de tempo em stall
+    P_stall_model = T_stall_total / (T_elong_no_stalls + T_stall_total)
+    P_run = 1 - P_stall_model
+    v_eff = v_max * P_run
+    T_elong = gene_length / v_eff
+    # Tempo de iniciação
+    T_init = 1/kb + 1/(ko * P_OC_) + 1/ke
+    # Tempo total previsto
+    T_total_pred.append(T_init + T_elong)
+
+T_total_pred = np.array(T_total_pred)
+
+plt.figure(figsize=(8,5))
+plt.plot(tss_values, T_total_pred, marker='o', label='Modelo predito')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo total previsto (s)')
+plt.xscale('log')
+plt.title('Tempo total predito vs tss (A=300)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+print('tss (bp) | P_OC | Tempo total previsto (s)')
+for tss, Poc, Ttot in zip(tss_values, P_OC, T_total_pred):
+    print(f'{int(tss):6d} | {Poc:5.3f} | {Ttot:8.2f}')
+

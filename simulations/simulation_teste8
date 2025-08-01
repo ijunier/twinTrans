@@ -1,0 +1,45 @@
+import numpy as np
+
+def analytic_v_eff(TSS,
+                   L=900, Ldown_bp=520, excl=30,
+                   kb=0.453, ko=0.32, ke=100,
+                   v_max=25, G=18.5, A=300,
+                   lambda_ns=1e-4, Lambda_s=1,
+                   lambda_ns_g=1e-4, Lambda_s_g=2,
+                   n=10.5):
+    # 1) domínios em Lk units
+    up_bp   = TSS - excl/2
+    L_up    = up_bp/n
+    L_dom   = (TSS + L + Ldown_bp)/n
+    L_down  = L_dom - L_up
+
+    # 2) taxas de relaxamento
+    k_topo_up   = lambda_ns*L_up   + Lambda_s
+    k_gyr_down  = lambda_ns_g*L_down + Lambda_s_g
+
+    # 3) resistência combinada
+    sigma_stall = abs(G/A)
+    C = (1/(sigma_stall*k_topo_up*L_up)
+         + 1/(sigma_stall*k_gyr_down*L_down))
+
+    # 4) velocidade efetiva
+    return v_max / (1 + C)
+
+def analytic_T_total(TSS, **kwargs):
+    v = analytic_v_eff(TSS, **kwargs)
+    T_init = 1/kwargs['kb'] + 1/kwargs['ko'] + 1/kwargs['ke']
+    return T_init + kwargs['L']/v
+
+# exemplo de comparação
+TSS_vals = np.array([100,200,300,500,1000,2000,5000])
+
+v_eff_an  = np.array([analytic_v_eff(t) for t in TSS_vals])
+
+import matplotlib.pyplot as plt
+plt.loglog(TSS_vals, 'o-', label="simulação")
+plt.loglog(TSS_vals, v_eff_an,   's--', label="analítico")
+plt.xlabel("TSS (bp)")
+plt.ylabel("v_eff (bp/s)")
+plt.legend()
+plt.show()
+

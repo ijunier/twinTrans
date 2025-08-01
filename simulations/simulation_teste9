@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+# ——————————————————————————————————————————
+# Parâmetros fixos do modelo
+# ——————————————————————————————————————————
+excluded    = 30.0             # RNAP excluded length (bp)
+gene_length = 900.0            # comprimento do gene (bp)
+dx          = 1.0              # passo de translocação (bp)
+n_bp_link   = 10.5             # pares de bases por volta de Lk
+
+# TopoI não‐específico e específico
+lambda_ns   = 1e-4             # /Lk‐unit/s
+Lambda_s    = 1.0              # /s
+
+# Girase não‐específico e específico
+lambda_ns_g = 1e-4             # /Lk‐unit/s
+Lambda_s_g  = 2.0              # /s
+
+# RNAP
+v_max       = 25.0             # bp/s
+sigma_stall = -18.5 / 300.0    # stalling sigma (–)
+
+# Lista de distâncias TSS e dados simulados de referência
+tss_list    = np.array([100,200,250,300,500,1000,2000,3000])
+T_real      = np.array([108.996,105.930,103.515,102.044, 94.464, 82.989, 75.767, 70.988])
+
+# Função que gera o rhs para cada TSS
+def make_rhs(tss):
+    # calcula condições iniciais em Lk‐units
+    rnap_xi    = tss - excluded/2.0
+    Lk0_up0    = rnap_xi / n_bp_link
+    Lk0_dom    = (tss + gene_length + 520.0) / n_bp_link
+    L_up0      = Lk0_up0
+    L_down0    = Lk0_dom - Lk0_up0
+
+    def rhs(t, y):
+        σ_up, σ_down, x = y
+        # domínio dinâmico
+        L_up   = L_up0   + x/n_bp_link
+        L_down = L_down0 - x/n_bp_link
+
+        # relaxamento upstream: só TopoI
+        k_rel_up   = lambda_ns * L_up + Lambda_s
+        # relaxamento downstream: TopoI + girase (2 voltas)
+        k_rel_down = (lambda_ns * L_down + Lambda_s) \
+                   + 2*(lambda_ns_g * L_down + Lambda_s_g)
+
+        # velocidade efetiva
+        v_eff = v_max * max(0.0, 1 - max(σ_up, σ_down)/abs(sigma_stall))
+
+        # EDOs
+        dσ_up   = v_eff / L_up   - k_rel_up   * σ_up
+        dσ_down = v_eff / L_down - k_rel_down * σ_down
+        dx      = v_eff
+        return [dσ_up, dσ_down, dx]
+
+    return rhs
+
+# Critério de parada: quando x >= gene_length
+def hit_terminal(t, y):
+    return y[2] - gene_length
+hit_terminal.terminal = True
+hit_terminal.direction = 1
+
+# Loop sobre cada TSS
+T_model = []
+for tss in tss_list:
+    # integra EDO até término
+    sol = solve_ivp(
+        fun=make_rhs(tss),
+        t_span=(0, 1e4),
+        y0=[0.0, 0.0, 0.0],
+        events=hit_terminal,
+        max_step=1.0,
+        atol=1e-6, rtol=1e-6
+    )
+    # extrai tempo de término
+    if sol.t_events[0].size > 0:
+        T_model.append(sol.t_events[0][0])
+    else:
+        T_model.append(sol.t[-1])
+
+T_model = np.array(T_model)
+
+# ——————————————————————————————————————————
+# Gráfico de comparação
+# ——————————————————————————————————————————
+plt.figure(figsize=(7,4))
+plt.plot(tss_list, T_model,   'o-', lw=2, label='Modelo ODE refinado')
+plt.plot(tss_list, T_real,    's--', lw=2, label='Simulação numérica')
+plt.xscale('log')
+plt.xlabel('TSS (bp)')
+plt.ylabel('Mean elongation time (s)')
+plt.title('Comparação: Modelo analítico ODE vs Simulação')
+plt.grid(True, which='both', ls=':')
+plt.legend()
+plt.tight_layout()
+plt.show()

@@ -1,0 +1,53 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Dados e modelo renewal ---
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+P_OC_array = np.array([0.746, 0.767, 0.780, 0.796, 0.843, 0.943, 0.982, 0.993, 0.998, 0.998, 1.000, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+
+# Parâmetros do modelo renewal
+params = {
+    'kb': 0.453,
+    'ko': 0.32,
+    'ke': 100,
+    'v_max': 25.0,
+    'gene_length': 900.0
+}
+
+def tempo_total_model_empirico(
+    kb, ko, ke, v_max, gene_length, P_OC
+):
+    T_init = 1/kb + 1/(ko * P_OC) + 1/ke
+    T_elong_free = gene_length / v_max
+    T_total_pred = T_init + T_elong_free / P_OC
+    return T_total_pred
+
+T_model_empirico_array = np.array([
+    tempo_total_model_empirico(params['kb'], params['ko'], params['ke'],
+                              params['v_max'], params['gene_length'], Poc)
+    for Poc in P_OC_array
+])
+
+# --- Ajuste do fator multiplicativo (alpha) ---
+alpha_best = np.sum(T_real_array * T_model_empirico_array) / np.sum(T_model_empirico_array**2)
+
+T_model_corrigido = alpha_best * T_model_empirico_array
+
+print(f"Fator de correção alpha = {alpha_best:.3f}")
+
+# --- Plot comparativo ---
+plt.figure(figsize=(8,5))
+plt.plot(tss_array, T_model_corrigido, label='Renewal (ajustado)', color='orange')
+plt.plot(tss_array, T_real_array, '--o', label='Simulação', color='green')
+plt.plot(tss_array, T_model_empirico_array, label='Renewal (original)', color='grey', alpha=0.5)
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo total (s)')
+plt.title('Modelo renewal ajustado vs simulação')
+plt.legend()
+plt.tight_layout()
+plt.show()

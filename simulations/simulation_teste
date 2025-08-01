@@ -1,0 +1,44 @@
+import numpy as np
+
+# Parâmetros
+tss = 1000  # teste tss pequeno e grande!
+gene_length = 900.0
+v_max = 25.0
+sigma_stall = -18.5/300.0
+n = 10.5
+L_dom_bp = tss
+L_dom_Lk = L_dom_bp / n
+dx = 1.0  # passo da simulação
+
+Lambda_s = 1  # taxa topoisomerase específica
+
+# 1. Cálculo da distância entre stalls (run):
+delta_sigma_stall = abs(sigma_stall)
+delta_Lk_stall = delta_sigma_stall * L_dom_Lk
+delta_bp_stall = delta_Lk_stall * n
+bp_per_run = int(delta_bp_stall)
+
+N_stalls = int(gene_length // bp_per_run)
+bp_final = gene_length - N_stalls * bp_per_run
+
+# 2. Overshoot: quanto sigma a mais pode ser acumulado durante run?
+# Assumindo que o stall é detectado após o passo dx:
+overshoot_sigma = dx / L_dom_bp  # variação de sigma por passo dx
+
+# 3. Quanto relaxa cada evento?
+relax_sigma_per_event = 1 / L_dom_Lk  # 1 volta por evento, normalizado
+
+# 4. Número de relaxamentos por stall:
+n_relax = int(np.ceil(overshoot_sigma / relax_sigma_per_event))
+
+# 5. Tempo total parado em cada stall:
+t_stall_per_stall = n_relax / Lambda_s
+
+t_run = bp_per_run / v_max
+t_final = bp_final / v_max
+
+T_elong = N_stalls * (t_run + t_stall_per_stall) + t_final
+
+print(f"Mean elongation time (nova modelagem): {T_elong:.1f} s")
+
+
