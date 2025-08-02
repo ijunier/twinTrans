@@ -1,0 +1,100 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# Parâmetros
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+gene_L = 900
+gene_Ldown = 520
+rnap_vm = 25.0
+rnap_torque_stall = 18.5
+dna_A = 300.0
+topoI_lambda_ns = 1e-4
+topoI_Lambda_s = 1.0
+gyrase_lambda_ns = 1e-4
+gyrase_Lambda_s = 2.0
+
+def simulate_elongation_MC(
+    tss, L=gene_L, Ld=gene_Ldown, v_max=rnap_vm,
+    G=rnap_torque_stall, A=dna_A,
+    topo_ns=topoI_lambda_ns, topo_s=topoI_Lambda_s,
+    gyr_ns=gyrase_lambda_ns, gyr_s=gyrase_Lambda_s,
+    Ntraj=500, dx=1.0
+):
+    Ldom = tss + L + Ld
+    Lk0_dom = Ldom / 10.5
+    sigma_stall = -G / A
+    k_rel = (topo_ns*Ldom + topo_s) + 2*(gyr_ns*Ldom + gyr_s)
+    d_sigma = dx / Ldom
+
+    T_all = []
+    for _ in range(Ntraj):
+        x = 0
+        sigma = 0
+        t = 0
+        while x < L:
+            # Caminho livre até stall ou final do gene, com relaxamento
+            while abs(sigma) < abs(sigma_stall) and x < L:
+                t += dx / v_max
+                x += dx
+                sigma += d_sigma
+                # Relaxamento estocástico: evento Poisson (probabilidade por passo)
+                if np.random.rand() < k_rel * (dx / v_max):
+                    sigma = 0  # Relaxou tudo
+            if x >= L:
+                break
+            # Se stalla, espera até relaxar
+            while abs(sigma) >= abs(sigma_stall):
+                # Espera até o próximo evento de relaxamento
+                t += np.random.exponential(1/k_rel)
+                sigma -= 1 / Lk0_dom  # Cada evento relaxa 1/Lk0_dom em sigma
+        T_all.append(t)
+    return np.mean(T_all), np.std(T_all)
+
+T_MC = []
+T_MC_std = []
+
+print("Simulando Monte Carlo para cada tss...")
+for tss in tss_array:
+    mean, std = simulate_elongation_MC(tss, Ntraj=500)
+    T_MC.append(mean)
+    T_MC_std.append(std)
+
+# Calculando também o modelo analítico com α ótimo (copie daqui do código anterior)
+def T_elong_alpha(tss, alpha=1.0):
+    Ldom = tss + gene_L + gene_Ldown
+    Lk0_dom = Ldom / 10.5
+    sigma_stall = -rnap_torque_stall / dna_A
+    k_rel = (topoI_lambda_ns*Ldom + topoI_Lambda_s) + 2*(gyrase_lambda_ns*Ldom + gyrase_Lambda_s)
+    n_ev = int(np.ceil(Lk0_dom))
+    dx_stall = abs(sigma_stall) * Ldom
+    N_stalls = gene_L / dx_stall
+    t_free = gene_L / rnap_vm
+    t_stall = n_ev / k_rel
+    T_total = t_free + alpha * N_stalls * t_stall
+    return T_total
+
+from scipy.optimize import minimize_scalar
+def loss(alpha):
+    T_alpha = np.array([T_elong_alpha(tss, alpha=alpha) for tss in tss_array])
+    return np.mean((T_alpha - T_real_array) ** 2)
+res = minimize_scalar(loss, bounds=(0.01, 1.0), method='bounded')
+alpha_opt = res.x
+T_alpha_opt = np.array([T_elong_alpha(tss, alpha=alpha_opt) for tss in tss_array])
+
+# Plots comparativos
+plt.figure(figsize=(10,6))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.errorbar(tss_array, T_MC, yerr=T_MC_std, fmt='-^', capsize=3, label='Monte Carlo Markov')
+plt.plot(tss_array, T_alpha_opt, '-s', label=f'Fórmula fechada + eficiência (α={alpha_opt:.2f})')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo médio de elongação (s)')
+plt.title('Simulação Monte Carlo x Fórmula ajustada')
+plt.legend()
+plt.tight_layout()
+plt.show()

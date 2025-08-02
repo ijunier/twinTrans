@@ -1,0 +1,63 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
+
+# === Dados reais da simulação ===
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+
+# === Parâmetros do sistema ===
+gene_L = 900                # bp
+gene_Ldown = 520            # bp
+rnap_vm = 25.0              # bp/s
+rnap_torque_stall = 18.5    # pN.nm
+dna_A = 300.0               # pN.nm
+topoI_lambda_ns = 1e-4      # per bp per s
+topoI_Lambda_s = 1.0        # per s
+gyrase_lambda_ns = 1e-4     # per bp per s
+gyrase_Lambda_s = 2.0       # per s
+
+# === Função da fórmula fechada com fator de eficiência alpha ===
+def T_elong_alpha(tss, alpha=1.0):
+    Ldom = tss + gene_L + gene_Ldown
+    Lk0_dom = Ldom / 10.5
+    sigma_stall = -rnap_torque_stall / dna_A
+    k_rel = (topoI_lambda_ns*Ldom + topoI_Lambda_s) + 2*(gyrase_lambda_ns*Ldom + gyrase_Lambda_s)
+    n_ev = int(np.ceil(Lk0_dom))
+    dx_stall = abs(sigma_stall) * Ldom
+    N_stalls = gene_L / dx_stall
+    t_free = gene_L / rnap_vm
+    t_stall = n_ev / k_rel
+    # Fator de eficiência alpha no termo dos stalls:
+    T_total = t_free + alpha * N_stalls * t_stall
+    return T_total
+
+# === Calcula modelo Markov físico (alpha=1) ===
+T_markov = np.array([T_elong_alpha(tss, alpha=1.0) for tss in tss_array])
+
+# === Ajuste ótimo de alpha ===
+def loss(alpha):
+    T_alpha = np.array([T_elong_alpha(tss, alpha=alpha) for tss in tss_array])
+    return np.mean((T_alpha - T_real_array) ** 2)
+
+res = minimize_scalar(loss, bounds=(0.01, 1.0), method='bounded')
+alpha_opt = res.x
+print(f"Fator de eficiência ajustado: α = {alpha_opt:.4f}")
+
+T_alpha_opt = np.array([T_elong_alpha(tss, alpha=alpha_opt) for tss in tss_array])
+
+# === Plots ===
+plt.figure(figsize=(10,6))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.plot(tss_array, T_markov, '-d', label='Fórmula fechada física (α=1)')
+plt.plot(tss_array, T_alpha_opt, '-s', label=f'Fórmula fechada + eficiência (α={alpha_opt:.2f})')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo médio de elongação (s)')
+plt.title('Ajuste com fator de eficiência')
+plt.legend()
+plt.tight_layout()
+plt.show()

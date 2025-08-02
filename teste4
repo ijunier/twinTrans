@@ -1,0 +1,65 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Parâmetros do sistema
+gene_L = 900
+gene_Ldown = 520
+excluded = 30
+rnap_vm = 25.0
+rnap_torque_stall = 18.5
+dna_A = 300.0
+topoI_lambda_ns = 1e-4
+topoI_Lambda_s = 1.0
+gyrase_lambda_ns = 1e-4
+gyrase_Lambda_s = 2.0
+
+def T_elong_integral(tss, dx=1.0):
+    L = gene_L
+    Ld = gene_Ldown
+    G = rnap_torque_stall
+    A = dna_A
+    sigma_stall = -G / A
+
+    x_vec = np.arange(0, L+dx, dx)
+    v_eff_vec = []
+    for x in x_vec:
+        # Domínios locais, conforme avança x
+        L_up = tss - excluded/2 + x/2
+        L_down = tss + L + Ld - L_up
+        # Taxas locais
+        k_rel_up = (topoI_lambda_ns*L_up + topoI_Lambda_s) + 2*(gyrase_lambda_ns*L_up + gyrase_Lambda_s)
+        k_rel_down = (topoI_lambda_ns*L_down + topoI_Lambda_s) + 2*(gyrase_lambda_ns*L_down + gyrase_Lambda_s)
+        # Sigmas locais em equilíbrio (mean-field local)
+        sigma_up = rnap_vm / (L_up * k_rel_up)
+        sigma_down = rnap_vm / (L_down * k_rel_down)
+        sigma_max = max(abs(sigma_up), abs(sigma_down))
+        # Velocidade efetiva local
+        v_eff = rnap_vm * max(0, 1 - sigma_max/abs(sigma_stall))
+        v_eff_vec.append(v_eff)
+    v_eff_vec = np.array(v_eff_vec)
+    v_eff_vec[v_eff_vec <= 0] = 1e-6 # Para evitar divisão por zero
+
+    # Integral do tempo ao longo de x
+    T_elong = np.trapz(1/v_eff_vec, x_vec)
+    return T_elong
+
+# Calcula para cada tss
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+
+T_integral = np.array([T_elong_integral(tss, dx=1.0) for tss in tss_array])
+
+# Plot
+plt.figure(figsize=(10,6))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.plot(tss_array, T_integral, '-p', label='Integral mean-field local')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo médio de elongação (s)')
+plt.title('Tempo médio de elongação: Simulação vs Integral mean-field')
+plt.legend()
+plt.tight_layout()
+plt.show()

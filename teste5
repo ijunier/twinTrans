@@ -1,0 +1,94 @@
+import numpy as np
+
+def model_stall_simple(params):
+    # Modelo básico: stalls determinísticos
+    sigma_stall = params['G'] / params['A']
+    N_stall = params['gene_length'] / (sigma_stall * params['tss'])
+    T_stall_total = N_stall * (1 / params['LasT'])  # só específico, pode ajustar!
+    T_elong = params['gene_length'] / params['v_max'] + T_stall_total
+    T_init = 1/params['kb'] + 1/(params['ko'] * params['P_OC']) + 1/params['ke']
+    return T_init + T_elong
+
+def model_stall_overshoot(params):
+    # Inclui overshoot realista antes do stall
+    sigma_stall = params['G'] / params['A']
+    N_stall = params['gene_length'] / (sigma_stall * params['tss'])
+    # Overshoot típico em dx, ou calcule pelos seus dados!
+    overshoot_sigma = params['overshoot'] * params['dx'] / params['tss']
+    relax_sigma_per_event = params['n'] / params['tss']
+    N_relax_per_stall = int(np.ceil(overshoot_sigma / relax_sigma_per_event))
+    L_up = params['tss'] / params['n']
+    k_relax = params['LasT'] + params['lambda_ns'] * L_up
+    t_evento = 1 / k_relax if k_relax > 0 else 1e10
+    T_stall_total = N_stall * N_relax_per_stall * t_evento
+    T_elong = params['gene_length'] / params['v_max'] + T_stall_total
+    T_init = 1/params['kb'] + 1/(params['ko'] * params['P_OC']) + 1/params['ke']
+    return T_init + T_elong
+
+def model_stall_stochastic(params):
+    # Modelo estocástico: relaxamento ~ distribuição exponencial, tempo médio com variância
+    sigma_stall = params['G'] / params['A']
+    N_stall = params['gene_length'] / (sigma_stall * params['tss'])
+    overshoot_sigma = params['overshoot'] * params['dx'] / params['tss']
+    relax_sigma_per_event = params['n'] / params['tss']
+    N_relax_per_stall = int(np.ceil(overshoot_sigma / relax_sigma_per_event))
+    L_up = params['tss'] / params['n']
+    k_relax = params['LasT'] + params['lambda_ns'] * L_up
+    # O tempo para N eventos Poisson é soma de N exponenciais
+    t_evento = 1 / k_relax if k_relax > 0 else 1e10
+    mean_T_relax = N_relax_per_stall * t_evento
+    std_T_relax = np.sqrt(N_relax_per_stall) * t_evento
+    # A média é igual ao determinístico, mas você pode incluir um "fator de cauda" para eventos raros
+    T_stall_total = N_stall * mean_T_relax  # + N_stall * std_T_relax (opcional)
+    T_elong = params['gene_length'] / params['v_max'] + T_stall_total
+    T_init = 1/params['kb'] + 1/(params['ko'] * params['P_OC']) + 1/params['ke']
+    return T_init + T_elong
+
+def model_queue(params):
+    # Modelo de fila M/M/1 para múltiplos RNAPs esperando (ideal para P_OC < 0.8)
+    sigma_stall = params['G'] / params['A']
+    N_stall = params['gene_length'] / (sigma_stall * params['tss'])
+    overshoot_sigma = params['overshoot'] * params['dx'] / params['tss']
+    relax_sigma_per_event = params['n'] / params['tss']
+    N_relax_per_stall = int(np.ceil(overshoot_sigma / relax_sigma_per_event))
+    L_up = params['tss'] / params['n']
+    k_relax = params['LasT'] + params['lambda_ns'] * L_up
+    # Iniciação = taxa de chegada = λ
+    lambda_in = 1 / (1/params['kb'] + 1/(params['ko'] * params['P_OC']) + 1/params['ke'])
+    mu = k_relax / N_relax_per_stall if N_relax_per_stall > 0 else 1e-10
+    if lambda_in < mu:
+        # Tempo médio de espera na fila (Little's law para M/M/1)
+        W_q = lambda_in / (mu * (mu - lambda_in))
+        T_stall_total = N_stall * W_q
+    else:
+        # Fila diverge (saturação extrema)
+        T_stall_total = 1e6
+    T_elong = params['gene_length'] / params['v_max'] + T_stall_total
+    T_init = 1/params['kb'] + 1/(params['ko'] * params['P_OC']) + 1/params['ke']
+    return T_init + T_elong
+
+# --------- EXEMPLO DE USO ----------
+params = {
+    'kb': 0.453,
+    'ko': 0.32,
+    'ke': 100,
+    'v_max': 25.0,
+    'gene_length': 900.0,
+    'LasT': 1.0,
+    'lambda_ns': 1e-4,
+    'G': 18.5,
+    'A': 300,
+    'tss': 500,  # Troque para outros valores de tss!
+    'dx': 1.0,
+    'n': 10.5,
+    'P_OC': 0.75,   # Use valores reais da sua simulação
+    'overshoot': 1.0,  # Ajuste se você medir nos gráficos simulados!
+}
+
+print("Modelo determinístico simples:", model_stall_simple(params))
+print("Com overshoot realista:", model_stall_overshoot(params))
+print("Com relaxamento estocástico:", model_stall_stochastic(params))
+print("Com efeito de fila:", model_queue(params))
+
+
+

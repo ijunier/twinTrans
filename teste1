@@ -1,0 +1,91 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from numpy.polynomial import Polynomial
+
+# === Dados reais da simulação ===
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332])
+
+# === Parâmetros fixos do sistema ===
+gene_L = 900
+gene_Ldown = 520
+rnap_vm = 25.0
+rnap_torque_stall = 18.5
+dna_A = 300.0
+topoI_lambda_ns = 1e-4
+topoI_Lambda_s = 1.0
+gyrase_lambda_ns = 1e-4
+gyrase_Lambda_s = 2.0
+
+# === Modelo mean-field ===
+def mean_field_elong_time(tss):
+    Ldom = tss + gene_L + gene_Ldown
+    Lk0_dom = Ldom / 10.5
+    k_topo = (topoI_lambda_ns*Ldom + topoI_Lambda_s) + 2*(gyrase_lambda_ns*Ldom + gyrase_Lambda_s)
+    sigma_stall = -rnap_torque_stall/dna_A
+    sigma_eq = rnap_vm / (10.5 * Lk0_dom * k_topo + rnap_vm/sigma_stall)
+    v_media = rnap_vm * (1 - sigma_eq/sigma_stall)
+    return gene_L / v_media
+
+T_model_array = np.array([mean_field_elong_time(tss) for tss in tss_array])
+
+# === Modelo de stalls explícitos ===
+def stall_elong_time(tss):
+    Ldom = tss + gene_L + gene_Ldown
+    sigma_stall = -rnap_torque_stall/dna_A
+    dx_stall = abs(sigma_stall) * Ldom
+    N_stalls = gene_L / dx_stall
+    t_free = gene_L / rnap_vm
+    k_topo = (topoI_lambda_ns*Ldom + topoI_Lambda_s) + 2*(gyrase_lambda_ns*Ldom + gyrase_Lambda_s)
+    Lk0_dom = Ldom / 10.5
+    relax_per_event = 1 / Lk0_dom
+    n_events_to_relax = int(np.ceil(1 / relax_per_event))
+    t_stall = n_events_to_relax / k_topo
+    return t_free + N_stalls * t_stall
+
+T_stall_model = np.array([stall_elong_time(tss) for tss in tss_array])
+
+# === Ajuste dinâmico do peso entre os modelos ===
+frac_dyn = (T_real_array - T_model_array) / (T_stall_model - T_model_array)
+
+# Ajuste polinomial de 2º grau em log10(tss)
+logtss = np.log10(tss_array)
+p_fit = Polynomial.fit(logtss, frac_dyn, 2)
+frac_dyn_fit = p_fit(logtss)
+
+# Modelo ajustado dinamicamente
+T_dynamic = T_model_array + frac_dyn_fit * (T_stall_model - T_model_array)
+
+# === PLOTS ===
+plt.figure(figsize=(10,6))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.plot(tss_array, T_model_array, '-s', label='Analítico mean-field')
+plt.plot(tss_array, T_stall_model, '-^', label='Stalls explícitos')
+plt.plot(tss_array, T_dynamic, '-d', label='Modelo Ajustado Dinâmico (polinômio)')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Tempo médio de elongação (s)')
+plt.title('Comparação de modelos: Ajuste Dinâmico')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,4))
+plt.plot(tss_array, frac_dyn, 'o-', label='Fator de ajuste dinâmico (real)')
+plt.plot(tss_array, frac_dyn_fit, '--', label='Ajuste polinomial')
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Fator de ajuste dinâmico')
+plt.title('Fator de ajuste entre modelos')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
+
+
+
+
