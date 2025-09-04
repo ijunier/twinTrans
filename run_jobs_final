@@ -2,7 +2,6 @@
 import os, math, subprocess
 from pathlib import Path
 from joblib import Parallel, delayed
-import pandas as pd
 
 # ========= CONFIG =========
 OLD_ROOT = Path("results_final_ko_100")          # NÃO alterar
@@ -35,24 +34,95 @@ MAX_NEW_PER_KB = 4                  # no máx 4 “tiros” por k_b na passada 1
 def fmt(x: float) -> str:
     return f"{x:.6g}"
 
-def read_N(mp_path: Path) -> float | None:
-    if not mp_path.exists(): return None
+# --------- Leitura sem pandas ----------
+def _is_numeric_token(tok: str) -> bool:
     try:
-        df = pd.read_csv(mp_path, sep="\t")
-    except:
-        try: df = pd.read_csv(mp_path, sep=r"\s+")
-        except: return None
-    req = {"prod_rate","mean_elong_time"}
-    if not req.issubset(df.columns): return None
-    tail = df.tail(5)[["prod_rate","mean_elong_time"]].dropna()
-    if tail.empty: return None
-    return float((tail["prod_rate"]*tail["mean_elong_time"]).mean())
+        float(tok)
+        return True
+    except ValueError:
+        return False
+
+def _parse_mean_properties_plain(mp_path: Path):
+    """
+    Lê mean_properties.txt sem pandas.
+    Retorna lista de pares (prod_rate, mean_elong_time) na ordem em que aparecem.
+    Aceita separador por tab ou espaço(s); ignora comentários e linhas vazias.
+    Tenta usar header; se não houver, usa posições padrão (col 2 e última).
+    """
+    if not mp_path.exists():
+        return []
+
+    pairs = []
+    header_map = None
+
+    with mp_path.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            s = line.strip()
+            if not s or s.startswith("#"):
+                continue
+
+            parts = s.split()
+            # tenta detectar header (possui nomes com letras/underscore)
+            if header_map is None and any(any(c.isalpha() for c in p) for p in parts):
+                # montar mapa nome->indice
+                header_map = {name: idx for idx, name in enumerate(parts)}
+                continue
+
+            # tentar converter toda a linha para floats
+            nums = []
+            ok = True
+            for p in parts:
+                try:
+                    nums.append(float(p))
+                except ValueError:
+                    ok = False
+                    break
+            if not ok or len(nums) < 2:
+                continue
+
+            if header_map is not None:
+                # preferir nomes, com fallbacks
+                idx_pr = header_map.get("prod_rate", 2 if len(nums) > 2 else None)
+                idx_me = header_map.get("mean_elong_time", len(nums)-1)
+                if idx_pr is None or idx_me is None:
+                    continue
+                pr = nums[idx_pr]
+                me = nums[idx_me]
+            else:
+                # sem header: usar convenção conhecida
+                # transcripts_nb time prod_rate ... mean_elong_time
+                idx_pr = 2 if len(nums) >= 3 else None
+                idx_me = len(nums)-1
+                if idx_pr is None:
+                    continue
+                pr = nums[idx_pr]
+                me = nums[idx_me]
+
+            pairs.append((pr, me))
+
+    return pairs
+
+def read_N(mp_path: Path) -> float | None:
+    """
+    Lê mean_properties.txt e calcula N ≈ média dos últimos 5 (prod_rate * mean_elong_time).
+    """
+    pairs = _parse_mean_properties_plain(mp_path)
+    if not pairs:
+        return None
+    tail = pairs[-5:] if len(pairs) >= 5 else pairs
+    vals = [pr * me for (pr, me) in tail if (pr is not None and me is not None)]
+    if not vals:
+        return None
+    return sum(vals) / float(len(vals))
+
+# ---------------------------------------
 
 def N_from_roots(kb: float, kun: float, tss: int) -> float | None:
     for root in (OLD_ROOT, NEW_ROOT):
         mp = root / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
         N = read_N(mp)
-        if N is not None: return N
+        if N is not None:
+            return N
     return None
 
 def run_sim(kb: float, kun: float, tss: int, Nt: int) -> bool:
@@ -70,54 +140,65 @@ def run_sim(kb: float, kun: float, tss: int, Nt: int) -> bool:
     ok = (p.returncode == 0)
     tag = f"kb={fmt(kb):>8} kun={fmt(kun):>8} tss={tss:<4} Nt={Nt}"
     print(f"[{'OK' if ok else 'ERR'}] {tag}")
-    if not ok: print(p.stderr)
+    if not ok:
+        print(p.stderr)
     return ok
 
 def collect_pairs(kb: float, tss: int):
     pairs = []
     for root in (OLD_ROOT, NEW_ROOT):
         kb_dir = root / f"kb_{fmt(kb)}"
-        if not kb_dir.exists(): continue
+        if not kb_dir.exists():
+            continue
         for kd in kb_dir.glob("kun_*"):
-            try: kun = float(kd.name.split("_")[1])
-            except: continue
-            N = N_from_roots(kb, kun, tss)
+            try:
+                kun = float(kd.name.split("_")[1])
+            except Exception:
+                continue
+            mp = kb_dir / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
+            if root is NEW_ROOT:
+                mp = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
+            N = read_N(mp)
             if N is not None:
                 pairs.append((kun, N))
-    # únicos, ordenados por k
+    # únicos e ordenados
     seen, out = set(), []
-    for k,N in sorted(pairs):
+    for k, N in sorted(pairs, key=lambda x: x[0]):
         key = (round(k, 12), round(N, 6))
-        if key in seen: continue
-        seen.add(key); out.append((k,N))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((k, N))
     return out
 
 def bracket_info(pairs):
-    below = [(k,N) for k,N in pairs if N < 1.0]
-    above = [(k,N) for k,N in pairs if N > 1.0]
+    below = [(k, N) for k, N in pairs if N < 1.0]
+    above = [(k, N) for k, N in pairs if N > 1.0]
     if below and above:
-        k1,N1 = max(below, key=lambda p: p[1])  # maior N<1
-        k2,N2 = min(above, key=lambda p: p[1])  # menor N>1
-        return True, (k1,N1,k2,N2)
+        k1, N1 = max(below, key=lambda p: p[1])  # maior N<1
+        k2, N2 = min(above, key=lambda p: p[1])  # menor N>1
+        return True, (k1, N1, k2, N2)
     return False, None
 
-def log_interp_kstar(k1,N1,k2,N2):
+def log_interp_kstar(k1, N1, k2, N2):
     x1, x2 = math.log10(k1), math.log10(k2)
-    x = x1 + (1.0 - N1) * (x2 - x1) / (N2 - N1 + 1e-12)
-    return 10**x
+    # proteção contra divisão por zero
+    x = x1 + (1.0 - N1) * (x2 - x1) / ( (N2 - N1) if (N2 - N1) != 0 else 1e-12 )
+    return 10 ** x
 
 def plan_new_kuns(kb: float, tss: int, pairs):
     if not pairs:
+        # não há dados: grade mínima para "pingar" o espaço
         return [1e-3, 1e-2, 0.1, 1.0][:MAX_NEW_PER_KB]
-    Nvals = [N for _,N in pairs]
-    k_existing = {round(k,12) for k,_ in pairs}
+    Nvals = [N for _, N in pairs]
+    existing = {round(k, 12) for k, _ in pairs}
     if min(Nvals) > 1.0:           # tudo > 1 → descer k_un
-        cand = [k for k in CANDS_DOWN if round(k,12) not in k_existing]
+        cand = [k for k in CANDS_DOWN if round(k, 12) not in existing]
         return cand[:MAX_NEW_PER_KB]
     if max(Nvals) < 1.0:           # tudo < 1 → subir k_un
-        cand = [k for k in CANDS_UP   if round(k,12) not in k_existing]
+        cand = [k for k in CANDS_UP if round(k, 12) not in existing]
         return cand[:MAX_NEW_PER_KB]
-    return []                      # já tem dos dois lados (só não bracketou “apertado”)
+    return []                      # já tem dos dois lados (apertar não é crítico)
 
 def schedule_pass1_jobs(kb_targets, tss_list):
     jobs = []
@@ -126,17 +207,14 @@ def schedule_pass1_jobs(kb_targets, tss_list):
             pairs = collect_pairs(kb, tss)
             have, info = bracket_info(pairs)
             if have:
-                # já bracketou: nada na pass1
-                continue
+                continue  # já bracketou
             for kun in plan_new_kuns(kb, tss, pairs):
-                # evita rerun se já existir no NEW_ROOT
                 mp = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
                 if not mp.exists():
                     jobs.append((kb, kun, tss, Nt_quick))
     return jobs
 
 def schedule_pass2_jobs(kb_targets, tss_list):
-    """Depois da pass1, interpola k* e agenda 1 corrida final por kb,tss."""
     jobs = []
     for kb in kb_targets:
         for tss in tss_list:
@@ -145,8 +223,8 @@ def schedule_pass2_jobs(kb_targets, tss_list):
             if not have:
                 print(f"[WARN] kb={fmt(kb)} tss={tss}: ainda sem bracketing (len={len(pairs)}).")
                 continue
-            k1,N1,k2,N2 = info
-            kstar = log_interp_kstar(k1,N1,k2,N2)
+            k1, N1, k2, N2 = info
+            kstar = log_interp_kstar(k1, N1, k2, N2)
             mp = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kstar)}" / f"tss_{tss}" / "mean_properties.txt"
             if not mp.exists():
                 jobs.append((kb, kstar, tss, Nt_final))
@@ -161,7 +239,7 @@ if __name__ == "__main__":
     if jobs1:
         print(f"\n[PASS1] Rodando {len(jobs1)} tiros rápidos (Nt={Nt_quick}) com n_jobs={n_jobs}...\n")
         Parallel(n_jobs=n_jobs)(
-            delayed(run_sim)(kb,kun,tss,Nt) for (kb,kun,tss,Nt) in jobs1
+            delayed(run_sim)(kb, kun, tss, Nt) for (kb, kun, tss, Nt) in jobs1
         )
     else:
         print("\n[PASS1] Nada a rodar (já havia bracketing em tudo).\n")
@@ -171,9 +249,10 @@ if __name__ == "__main__":
     if jobs2:
         print(f"\n[PASS2] Rodando {len(jobs2)} corridas finais (Nt={Nt_final}) com n_jobs={n_jobs}...\n")
         Parallel(n_jobs=n_jobs)(
-            delayed(run_sim)(kb,kun,tss,Nt) for (kb,kun,tss,Nt) in jobs2
+            delayed(run_sim)(kb, kun, tss, Nt) for (kb, kun, tss, Nt) in jobs2
         )
     else:
         print("\n[PASS2] Nada a rodar.\n")
 
     print("\n[OK] Top-up finalizado. Resultados em:", NEW_ROOT)
+
