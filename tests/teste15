@@ -1,0 +1,51 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# —– 1) Carrega o summary que você já tem —– 
+# Se você salvou em CSV, por exemplo:
+# summary = pd.read_csv("summary_init_times.csv")
+# Caso contrário, cole aqui o dicionário que você imprimiu:
+data = {
+    "param":      ["kb","kb","ke","ke","ko","ko","nsgyrase","nstopo1","sgyrase","stopo1","tss","tss"],
+    "value":      [0.01,100,0.01,10,0.01,100,1e-6,1e-6,0.02,0.01,100,5000],
+    "transcripts":[10000]*12,
+    "total_init": [122.13,   9.98, 211.60, 12.20, 612.57,  5.48,
+                   13.26,   12.22,  99.27, 37.41, 14.75, 11.07]
+}
+summary = pd.DataFrame(data)
+
+# —– 2) Define valores padrão para os parâmetros não-variados —–
+defaults = {
+    "kb":  0.453,   # padrão original
+    "ko":  0.32,
+    "ke":  100.0
+}
+
+# —– 3) Calcula a fórmula 1/kb + 1/ko + 1/ke na forma ingênua —–
+def theo_init_time(row):
+    # se estou variando 'kb', uso row['value'], senão uso o default, etc.
+    kb = row["value"] if row["param"]=="kb" else defaults["kb"]
+    ko = row["value"] if row["param"]=="ko" else defaults["ko"]
+    ke = row["value"] if row["param"]=="ke" else defaults["ke"]
+    return 1.0/kb + 1.0/ko + 1.0/ke
+
+summary["T0_init"] = summary.apply(theo_init_time, axis=1)
+
+# —– 4) Plot comparativo para cada parâmetro —–
+for p in ["kb","ko","ke"]:
+    sub = summary[ summary["param"]==p ]
+    plt.figure(figsize=(6,4))
+    plt.plot(sub["value"], sub["total_init"],
+             "o-", label="simulação")
+    plt.plot(sub["value"], sub["T0_init"],
+             "s--", label=r"$1/k_b+1/k_o+1/k_e$")
+    plt.xscale("log")
+    plt.xlabel(f"{p}")
+    plt.ylabel("Tempo init (s)")
+    plt.title(f"Variação de {p}: simulação vs. teoria ingênua")
+    plt.legend()
+    plt.grid(True, which="both", ls="--", lw=0.5)
+
+plt.tight_layout()
+plt.show()

@@ -1,0 +1,92 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+# --- Dados de simulação ---
+data = [
+    ("kb",     0.010, 112.563088),
+    ("kb",     0.453,  83.320568),
+    ("kb",   100.000,  82.890564),
+    ("ke",     0.010,  80.036460),
+    ("ke",    10.000,  82.811432),
+    ("ko",     0.010,  80.169580),
+    ("ko",   100.000,  83.420148),
+    ("nsgyrase",1e-6,  79.606184),
+    ("nstopo1", 1e-6,  90.890096),
+    ("sgyrase", 0.020,1251.418612),
+    ("stopo1",  0.010, 779.104032),
+    ("tss",   100.000,109.763228),
+    ("tss",  5000.000, 66.977648),
+]
+df = pd.DataFrame(data, columns=['param','value','elong_time_sim'])
+
+# --- Parâmetros default ---
+L      = 900.0    # bp
+Ld     = 520.0    # bp
+v_max  = 25.0     # bp/s
+G      = 18.5     # pN·nm
+A      = 300.0    # pN·nm
+phi    = 1/10.5
+
+lambda_ns_I_def = 1e-4
+Lambda_s_I_def  = 1.0
+lambda_ns_G_def = 1e-4
+Lambda_s_G_def  = 2.0
+
+D_up_def   = 1000.0       # tss padrão
+D_down_def = L + Ld       # gene + downstream
+
+# Parâmetros empíricos
+alpha = 0.001
+kappa = 0.1
+
+def theoretical_T_elong_asym_alpha(row):
+    # Adapta D_up se variar tss
+    D_up   = row.value if row.param=='tss' else D_up_def
+    D_down = D_down_def
+    L_dom    = D_up + L + Ld
+    Lk0_dom  = L_dom / 10.5
+
+    # Ajusta topoI/gyrase se variou
+    lam_ns_I = row.value if row.param=='nstopo1' else lambda_ns_I_def
+    Lam_s_I  = row.value if row.param=='stopo1'  else Lambda_s_I_def
+    lam_ns_G = row.value if row.param=='nsgyrase'else lambda_ns_G_def
+    Lam_s_G  = row.value if row.param=='sgyrase' else Lambda_s_G_def
+
+    lam_I = lam_ns_I * D_up   + Lam_s_I
+    lam_G = lam_ns_G * D_down + Lam_s_G
+    lam0  = lam_I + lam_G
+
+    # nova fórmula para v_eff
+    x = (A * phi * v_max) / (G * lam0)
+    v_eff = (v_max / (1 + alpha * x)) * np.exp(-kappa * x)
+
+    sigma_stall = - G / A
+    dx_stall    = abs(sigma_stall) * L_dom
+    N_stalls    = L / dx_stall
+    n_ev        = math.ceil(Lk0_dom)
+    k_rel       = lam0
+    t_free      = L / v_eff
+    t_stall     = n_ev / k_rel
+
+    return t_free + N_stalls * t_stall
+
+    
+
+df['elong_time_theo'] = df.apply(theoretical_T_elong_asym_alpha, axis=1)
+
+# Tabela comparativa
+print(df[['param','value','elong_time_sim','elong_time_theo']])
+
+# Gráfico
+plt.figure(figsize=(10,5))
+x = np.arange(len(df))
+plt.plot(x, df['elong_time_sim'], 'o-', label='Simulação')
+plt.plot(x, df['elong_time_theo'], 's--', label='Teórico (α=0.001, κ=0.1)')
+plt.xticks(x, [f"{p}:{v:.3g}" for p,v in zip(df.param,df.value)], rotation=45, ha='right')
+plt.ylabel('Tempo de Elongação (s)')
+plt.title('Simulação vs Teórico Assimétrico com α e κ')
+plt.legend()
+plt.tight_layout()
+plt.show()

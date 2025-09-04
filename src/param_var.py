@@ -63,6 +63,19 @@ def parsing_cmd():
         help="promoter binding rate (per s)",
         default=1,
     )
+
+    parser.add_argument(
+        "-toff",
+        metavar="X",
+        dest="promoter_t_off",
+        type=float,
+        help="How many seconds turn off kb",
+        default=10000,
+    )
+
+    
+
+
     parser.add_argument(
         "-ko",
         metavar="X",
@@ -274,6 +287,9 @@ class SimuParam:
 
         self.fo_out = args.output_folder  # output folder
 
+        
+
+
 
 class ModelParam:
     """Modelling parameters"""
@@ -291,6 +307,7 @@ class ModelParam:
         )
         #MODIFICATION
         self.k_unbind = self.topoI.k_unbind #NEW K_UNBIDING
+        
         
 
     class _DNA:
@@ -351,6 +368,8 @@ class ModelParam:
             self.ke = args.promoter_ke
             self.ke_s = 1 / self.ke
             # corresponding scale (s)
+
+            self._t_off = args.promoter_t_off
 
 
 
@@ -492,6 +511,16 @@ class Trajectory:
 
         self.sigma_at_ocf = []
         # supercoiling density at of OC formation stage
+
+        # listas para velocidades de elongação
+
+        self.termination_times = [] 
+        self.termination_escape_times = [] 
+
+        self.vel_on  = []
+        self.vel_off = []
+        self.n_before_off = 0
+        self.n_after_off  = 0
 
 class Topo1Spec: #modification
     """

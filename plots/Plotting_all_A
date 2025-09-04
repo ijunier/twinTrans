@@ -11,6 +11,7 @@ TARGET_N    = 10000
 
 # === 2) READ & NORMALIZE PER A ===
 sus_by_A = {}
+raw_by_A = {}
 
 # pre-calc index of 250 bp
 ref_idx = distances.index(250)
@@ -21,11 +22,18 @@ for A in A_values:
         fn = os.path.join(base_dir, f"A_{A}", f"tss_{d}", "mean_properties.txt")
         df = pd.read_csv(fn, delim_whitespace=True)
         # assume último registro é o TARGET_N
-        rate = df["prod_rate"].iloc[-1]
+        rate = df["mean_elong_time"].iloc[-1]
         rates.append(rate)
     # normalize to the 250 bp distance
     ref = rates[ref_idx]
+    raw_by_A[A] = rates
     sus_by_A[A] = [r / ref for r in rates]
+
+raw_df = pd.DataFrame(raw_by_A, index=distances)
+raw_df.index.name = "Distance (bp)"
+print(raw_df.to_string())
+
+
 
 # === 3) PLOT ALL TOGETHER ===
 plt.figure(figsize=(8,5))

@@ -1,0 +1,60 @@
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+def compute_mean_elongation_time_corrected(tss, excluded=30, gene_length=900.0, downstream_const=520.0,
+                                           lambda_ns=1e-4, Lambda_s=1,
+                                           lambda_ns_g=1e-4, Lambda_s_g=2,
+                                           v_max=25.0, sigma_stall=-18.5/300.0):
+    # Parâmetros dependentes de tss corrigidos
+    rnap_xi = tss - excluded/2
+    Lk0_up0 = rnap_xi / 10.5
+    # Usar constante downstream original de 520 bp
+    Lk0_domain = (tss + gene_length + downstream_const) / 10.5
+    L_up0 = Lk0_up0
+    L_down0 = Lk0_domain - Lk0_up0
+
+    def rhs(t, y):
+        σ_up, σ_down, x = y
+        L_up   = L_up0   + x/10.5
+        L_down = L_down0 - x/10.5
+        k_rel_up   = (lambda_ns   * L_up   + Lambda_s) + 2*(lambda_ns_g * L_up   + Lambda_s_g)
+        k_rel_down = (lambda_ns   * L_down + Lambda_s) + 2*(lambda_ns_g * L_down + Lambda_s_g)
+        v_eff = v_max * max(0.0, 1 - max(σ_up, σ_down)/abs(sigma_stall))
+        dσ_up   = v_eff / L_up   - k_rel_up   * σ_up
+        dσ_down = v_eff / L_down - k_rel_down * σ_down
+        dx      = v_eff
+        return [dσ_up, dσ_down, dx]
+
+    def hit_terminal(t, y):
+        return y[2] - gene_length
+    hit_terminal.terminal = True
+    hit_terminal.direction = 1
+
+    y0 = [0.0, 0.0, 0.0]
+    sol = solve_ivp(rhs, (0, 1e4), y0, events=hit_terminal, max_step=1.0, atol=1e-6, rtol=1e-6)
+    return sol.t_events[0][0] if sol.t_events[0].size > 0 else sol.t[-1]
+
+# Testar para tss=500 e tss=1000
+times_test = {tss: compute_mean_elongation_time_corrected(tss) for tss in [500, 1000]}
+times_test
+# Gerar varredura de 100 a 5000 bp
+tss_values = np.arange(100, 20001, 100)
+mean_times = [compute_mean_elongation_time_corrected(t) for t in tss_values]
+
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+])
+
+plt.figure(figsize=(8, 5))
+plt.plot(tss_values, mean_times, marker='o')
+plt.plot(tss_array, T_real_array, '-', label='Modelo teórico')
+plt.xlabel("tss (bp)")
+plt.ylabel("Mean elongation time (s)")
+plt.title("Tempo médio de elongação vs. distância tss (corrigido)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()

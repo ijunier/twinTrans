@@ -1,0 +1,62 @@
+import numpy as np
+import pandas as pd
+from scipy.special import erfc
+import matplotlib.pyplot as plt
+
+
+# Parameters
+L = 520          # gene length (bp)
+v_max = 25       # max RNAP speed (bp/s)
+G = 18.5         # stall torque (pN·nm)
+A = 300          # DNA stiffness (pN·nm)
+phi = 1/10.5     # supercoil injection per bp
+lambda_ns = 1e-4     # TopoI non-specific (/Lk-unit/s)
+Lambda_s = 1        # TopoI specific (/s)
+lambda_ns_g = 1e-4   # gyrase non-specific (/Lk-unit/s)
+Lambda_s_g = 2       # gyrase specific (/s)
+sigma_t = 0.05       # threshold supercoiling for specific enzymes
+c_noise = 0.0000005    # noise coefficient for D_sigma = c_noise / D
+
+# Self-consistent solver for mean sigma
+def compute_T_elong(D):
+    # compute non-specific removal
+    lambda_ns_tot = lambda_ns*D + lambda_ns_g*D
+    # initial guess for sigma_bar
+    sigma_bar = -0.06
+    for _ in range(50):
+        # linearized drift coefficient
+        k = lambda_ns_tot + (A*phi*v_max)/G
+        # noise variance
+        D_sigma = c_noise / D
+        sigma_var2 = D_sigma / k
+        # probabilities of specific action
+        pg = 0.5 * erfc((sigma_t - sigma_bar)/np.sqrt(2*sigma_var2))
+        pI = 0.5 * erfc((sigma_bar + sigma_t)/np.sqrt(2*sigma_var2))
+        # total removal rate
+        lambda0 = lambda_ns_tot + Lambda_s*pI + Lambda_s_g*pg
+        # new sigma_bar from mean-field balance
+        v_eff = v_max*(1 - A*sigma_bar/G)
+        sigma_bar = phi*v_eff / lambda0
+    # final velocity and elongation time
+    v_eff = v_max*(1 - A*sigma_bar/G)
+    T_elong = L / v_eff
+    return T_elong
+
+# Run for several distances
+Ds = [100, 300, 500, 1000, 2000, 5000]
+results = []
+for D in Ds:
+    T = compute_T_elong(D)
+    results.append({'Distance (bp)': D, 'T_elong_model (s)': T})
+df = pd.DataFrame(results)
+
+# Display and plot
+
+plt.figure(figsize=(8,5))
+plt.plot(df['Distance (bp)'], df['T_elong_model (s)'], marker='o')
+plt.xscale('log')
+plt.xlabel('Upstream Distance D (bp)')
+plt.ylabel('Predicted T_elong (s)')
+plt.title('Model with Stochastic Threshold for Specific Enzymes')
+plt.grid(True, which='both', ls='--', lw=0.5)
+plt.show()

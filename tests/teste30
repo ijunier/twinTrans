@@ -1,0 +1,76 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from math import erf, sqrt
+
+# — Dados de referência (simulação) — 
+tss_list = np.array([100,200,250,300,500,1000,2000,3000])
+T_real   = np.array([108.996,105.930,103.515,102.044, 94.464, 82.989, 75.767, 70.988])
+
+# — Parâmetros físicos — 
+L       = 900.0      # gene length (bp)
+dx      = 1.0        # step (bp)
+v_max   = 25.0       # bp/s
+tau0    = dx / v_max # quantização (s)
+A       = 300.0      # pN·nm
+phi     = 1/10.5     # turns per bp
+G       = 18.5       # pN·nm
+kB_T    = 4.1        # pN·nm
+
+# — TopoI / gyrase — 
+lambda_ns_I = 1e-4
+Lambda_s_I  = 1.0
+lambda_ns_G = 1e-4
+Lambda_s_G  = 2.0
+
+# — Domínios downstream / upstream — 
+D_down = 520.0  # bp downstream fixed
+# (upstream varia como tss)
+
+# — Funções auxiliares — 
+def v_eff_asym(D_up):
+    """Modelo 2: velocidade efetiva média."""
+    lamI = lambda_ns_I * D_up   + Lambda_s_I
+    lamG = lambda_ns_G * D_down + Lambda_s_G
+    lam0 = lamI + lamG
+    return v_max / (1 + (A * phi * v_max) / (G * lam0)), lam0
+
+def p_stall_gauss(D_down, lam0):
+    """Probabilidade de stall via gaussiana deslocada."""
+    # estatística de sigma downstream
+    ve = v_max / (1 + (A * phi * v_max) / (G * lam0))
+    mu  = - ve * phi / lam0
+    var = kB_T / (A * phi**2 * D_down)
+    sigma_stall = G / (A * phi)
+    ap = ( sigma_stall - mu ) / sqrt(2 * var)
+    am = (-sigma_stall - mu ) / sqrt(2 * var)
+    p_within = 0.5*(erf(ap) - erf(am))
+    return 1 - p_within
+
+def T_elong_hybrid(tss):
+    """Modelo híbrido: L/v_eff + N*(p_stall/lam0) + tau0."""
+    ve, lam0 = v_eff_asym(tss)
+    pst = p_stall_gauss(D_down, lam0)
+    N   = L / dx
+    return L/ve + N*(pst/lam0) + tau0
+
+# — Cálculo dos três modelos — 
+T_m2 = np.array([L / v_eff_asym(t)[0] for t in tss_list])   # Modelo 2
+T_m3 = np.array([ (L/dx)*(tau0 + p_stall_gauss(D_down, v_eff_asym(t)[1]) / v_eff_asym(t)[1]) 
+                  for t in tss_list ])                       # Modelo 3
+T_hy = np.array([T_elong_hybrid(t) for t in tss_list])      # Híbrido
+
+# — Plotagem comparativa — 
+plt.figure(figsize=(8,5))
+plt.plot(tss_list, T_real,   'k.-', label='Simulação')
+plt.plot(tss_list, T_m2,    'b.--', label='Modelo 2 (L/v_eff)')
+plt.plot(tss_list, T_m3,    'g.--', label='Modelo 3 (FP)')
+plt.plot(tss_list, T_hy,    'r.-',  lw=2, label='Modelo Híbrido')
+plt.xscale('log')
+plt.xlabel('TSS (bp)')
+plt.ylabel('Mean Elongation Time (s)')
+plt.title('Fusão Modelos: Assimétrico + First-Passage + Quantização')
+plt.legend()
+plt.grid(True, which='both', ls=':')
+plt.tight_layout()
+plt.show()
+

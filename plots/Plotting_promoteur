@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # 1) Point to your data file
-folder = "results/promfollow/A_300/tss_1000"
+folder = "results/promfollow/A_300/tss_100"
 fn     = os.path.join(folder, "traj_promoter.txt")
 
 # 2) Load it
@@ -29,7 +29,7 @@ plt.fill_between(
 
 plt.xlabel("Time (s)")
 plt.ylabel("Promoter σ (supercoiling density)")
-plt.title("Promoter supercoiling over time A_200 tss_100")
+plt.title("Promoter supercoiling over time A_367 tss_100")
 plt.grid(True, ls=":")
 plt.tight_layout()
 plt.show()

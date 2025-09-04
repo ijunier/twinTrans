@@ -1,0 +1,122 @@
+import os
+import pandas as pd
+import numpy as np
+from math import erf, sqrt
+import matplotlib.pyplot as plt
+
+# ─── Parâmetros default ─────────────────────────────────────────────────────────
+defaults = {
+    'kb': 0.453,        # agora usado corretamente
+    'ko': None,         # permanece, mas não é usado em calc_times_theory
+    'ke': 100.0,
+    'A': 300.0,
+    'phi': 1/10.5,
+    'v_max': 25.0,
+    'G': 18.5,
+    'lambda_ns': 1e-4,
+    'Lambda_s': 1.0,
+    'lambda_ns_g': 1e-4,
+    'Lambda_s_g': 2.0,
+    'l_excl': 30.0
+}
+
+# ─── Funções Teóricas ───────────────────────────────────────────────────────────
+def calc_v_eff(D, A, params):
+    lam0 = (params['lambda_ns'] * D + params['Lambda_s']) \
+         + 2*(params['lambda_ns_g'] * D + params['Lambda_s_g'])
+    return params['v_max'] / (1 + (A * params['phi'] * params['v_max'])/(params['G'] * lam0))
+
+def calc_Psigma_ref(D, params):
+    lam0 = (params['lambda_ns'] * D + params['Lambda_s']) \
+         + 2*(params['lambda_ns_g'] * D + params['Lambda_s_g'])
+    v_eff = calc_v_eff(D, params['A'], params)
+    mu_sigma = - v_eff * params['phi'] / lam0
+    var_sigma = 4.1 / (params['A'] * params['phi']**2 * D)
+    sigma0 = -0.05
+    Psigma = 0.5 * (1 + erf((sigma0 - mu_sigma) / sqrt(2 * var_sigma)))
+    return Psigma, lam0, v_eff
+
+def calc_times_theory(kb, ko, ke, D):
+    params = defaults.copy()
+    params.update({'kb': kb, 'ko': ko, 'ke': ke, 'tss': D})
+    P_sigma, lam0, v_eff = calc_Psigma_ref(D, params)
+    t_escape = 1/ke + 1/params['v_max']
+    t_ocf    = ((1/ko + (1 - P_sigma)/lam0) / P_sigma) + 1/params['v_max']
+    t_init   = t_ocf + t_escape + 2/params['v_max']
+    t_bind   = 1/kb + t_init + params['l_excl']/v_eff + 1/params['v_max']
+    return t_bind, t_ocf, t_escape, t_init
+
+# ─── Loop principal ─────────────────────────────────────────────────────────────
+base_dir = "results_final_ko_100"
+records = []
+
+for kb_folder in os.listdir(base_dir):
+    if not kb_folder.startswith("kb_"):
+        continue
+    kb_val = float(kb_folder.split("_")[1])
+    kun_path = os.path.join(base_dir, kb_folder, "kun_0.001")
+    if not os.path.isdir(kun_path):
+        continue
+
+    for tss_folder in os.listdir(kun_path):
+        if not tss_folder.startswith("tss_"):
+            continue
+        tss_val = float(tss_folder.split("_")[1])
+        txt_path = os.path.join(kun_path, tss_folder, "mean_properties.txt")
+        if not os.path.isfile(txt_path):
+            continue
+
+        # lê o arquivo e extrai a linha com 10000 transcritos
+        df_txt = pd.read_csv(txt_path, sep=r'\s+')
+        row    = df_txt[df_txt['transcripts_nb'] == 10000].iloc[0]
+        bind_sim = row['mean_bind_time']
+        ocf_sim  = row['mean_ocf_time']
+        esc_sim  = row['mean_esc_time']
+        init_sim = row['mean_init_time']
+
+        # calcula tempos teóricos (usando defaults['kb'])
+        bind_th, ocf_th, esc_th, init_th = calc_times_theory(
+            defaults['kb'],   # agora um float, não None
+            kb_val,
+            defaults['ke'],
+            tss_val
+        )
+
+        records.append({
+            'kb':         kb_val,
+            'tss':        tss_val,
+            'bind_sim':   bind_sim,
+            'ocf_sim':    ocf_sim,
+            'escape_sim': esc_sim,
+            'init_sim':   init_sim,
+            'bind_th':    bind_th,
+            'ocf_th':     ocf_th,
+            'escape_th':  esc_th,
+            'init_th':    init_th
+        })
+
+# monta DataFrame final
+df = pd.DataFrame(records)
+
+# ─── Plotagem comparativa ───────────────────────────────────────────────────────
+metrics = [
+    ('bind',   'Tempo de Binding (s)'),
+    ('ocf',    'Tempo de OC-formation (s)'),
+    ('escape', 'Tempo de Escape (s)'),
+    ('init',   'Tempo Total de Iniciação (s)')
+]
+
+for key, label in metrics:
+    plt.figure(figsize=(6,4))
+    for tss in sorted(df['tss'].unique()):
+        sub = df[df['tss'] == tss]
+        plt.plot(sub['kb'],   sub[f'{key}_sim'], 'o-',  label=f'Sim tss={int(tss)}')
+        plt.plot(sub['kb'],   sub[f'{key}_th'],  's--', label=f'Theory tss={int(tss)}')
+    plt.xscale('log')
+    plt.xlabel('kb')
+    plt.ylabel(label)
+    plt.title(f'{label} vs kb para diferentes tss')
+    plt.legend()
+    plt.tight_layout()
+
+plt.show()

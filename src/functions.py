@@ -18,6 +18,22 @@ from param_var import *
 #     for k,v in _stats.items():
 #         print(f"{k}: {v}")
 
+def write_elongation_traj(traj: Trajectory, RNAP_list, simuP: SimuParam, header=False):
+    """
+    Write time series of number of elongating RNAPs.
+    File: <output_folder>/traj_elongating.txt
+    Columns: time \t N_elong
+    """
+    fi = simuP.fo_out + "/traj_elongating.txt"
+    if header:
+        with open(fi, "w") as out:
+            out.write("time\tN_elong\n")
+        return
+    with open(fi, "a") as out:
+        N_elong = sum(1 for r in RNAP_list if r.t_elongating)
+        out.write(f"{traj.time}\t{N_elong}\n")
+    return
+
 # supercoiling densities
 def _sigma(rnap: RNAP, loc='up'):
     return (rnap.Lk[loc] - rnap.Lk0[loc]) / rnap.Lk0[loc]
@@ -83,6 +99,11 @@ def generate_run_multiple_transcrtipts(modelP: ModelParam, simuP: SimuParam):
     Z = np.random.exponential(scale=modelP.promoter.kb_s, size=None)
     nextevent2iter["b"] = int(Z / modelP.coarse_g.tau_0)
 
+    # --- sampling for elongation counts ---
+    traj.elong_counts = []  # store (time, N_elong)
+    sample_every_secs = 1.0
+    sample_every_iters = max(1, int(sample_every_secs / modelP.coarse_g.tau_0))
+
     write_transcripts_on_the_fly(traj, simuP, header=True)
     while traj.niter < simuP.Niterations and traj.Ntranscripts < simuP.Ntranscripts_max:
         verbosing(simuP, traj, RNAP_list)
@@ -125,17 +146,45 @@ def generate_run_multiple_transcrtipts(modelP: ModelParam, simuP: SimuParam):
         # Termination
         termination_stage(modelP, simuP, RNAP_list, traj)
 
+        # if traj.time >= modelP.promoter._t_off and not RNAP_list:
+        #     break
+
+        # --- sample elongating RNAPs at configured frequency ---
+        if not traj.niter % sample_every_iters:
+            N_elong = sum(1 for r in RNAP_list if r.t_elongating)
+            traj.elong_counts.append((traj.time, N_elong))
+            write_elongation_traj(traj, RNAP_list, simuP)
+
+
         traj.niter += 1
         traj.time = traj.niter * modelP.coarse_g.tau_0
 
 
     #_dump_stats("multiple_transcripts")
-    return
+    return #traj
 
 
 # Transcription stages
 def binding_stage(modelP: ModelParam, RNAP_list, traj: Trajectory, nextevent2iter):
     """Binding of the RNAP at the promoter"""
+
+    # if traj.time < modelP.promoter._t_off:
+    #     kb_eff = modelP.promoter.kb
+    # else:
+    #     kb_eff = 0.0  novo
+
+
+
+
+    # if kb_eff > 0:
+    # # escala = 1/λ para experimento exponencial
+    #     Z = np.random.exponential(scale=1.0/kb_eff)
+    #     next_b = traj.niter + int(Z / modelP.coarse_g.tau_0)
+    # else:
+    #     # após shutdown, nunca mais agenda binding
+    #     next_b = sys.maxsize
+        
+    # nextevent2iter["b"] = max(traj.niter + 1, next_b)  novo
 
     if (
         not RNAP_list
@@ -154,9 +203,13 @@ def binding_stage(modelP: ModelParam, RNAP_list, traj: Trajectory, nextevent2ite
 
         traj.ref_binding_time = traj.time
 
+
+
         # SETTING UP NEW RNAP
         rnap = RNAP()
         #rnap.topo_spec.bind()
+
+        #rnap.is_on = traj.time < modelP.promoter._t_off novo
         
         # _stats['bind_bind'] += 1 #DEBUG Counting how many binding events of topo1 occured
         
@@ -193,10 +246,17 @@ def binding_stage(modelP: ModelParam, RNAP_list, traj: Trajectory, nextevent2ite
         )  # at least niter + 1
 
     # NEXT BINDING TRIAL (INDEPENDENT WHETHER BINDING HAS OCCURED OR NOT)
+    # Z = np.random.exponential(scale=1.0/kb_eff, size=None) if kb_eff>0 else float('inf')
+    # nextevent2iter["b"] = np.max(
+    #     (traj.niter + 1, traj.niter + int(Z / modelP.coarse_g.tau_0))
+    # )  # at least niter + 1 NOVO
+
+          # NEXT BINDING TRIAL (INDEPENDENT WHETHER BINDING HAS OCCURED OR NOT)
     Z = np.random.exponential(scale=modelP.promoter.kb_s, size=None)
     nextevent2iter["b"] = np.max(
         (traj.niter + 1, traj.niter + int(Z / modelP.coarse_g.tau_0))
     )  # at least niter + 1
+
 
     return
 
@@ -403,6 +463,92 @@ def RNAP_translocation(ix_rnap, RNAP_list, modelP: ModelParam):
     return
 
 
+# def termination_stage(modelP: ModelParam, simuP: SimuParam, RNAP_list, traj: Trajectory):
+#     """Termination stage: transcript production by the most downstream RNAP"""
+
+#     if RNAP_list and RNAP_list[0].X >= modelP.gene.term:
+#         #traj.Ntranscripts += 1
+
+#         # 1) compute speed of this RNAP
+#         r = RNAP_list[0]
+
+
+
+
+#         # --- 1) calcule tempo de elongação desde o escape
+#         # elong_time = traj.time - r.tesc
+#         # # --- 2) velocidade em nt/s (gene.L é o comprimento em bp)
+#         # speed = modelP.gene.L / elong_time
+
+#         # # --- 3) classifique on/off pelo instante de término
+#         # if traj.time <= modelP.promoter._t_off:
+#         #     traj.vel_on .append(speed)
+#         #     traj.n_before_off += 1
+#         # else:
+#         #     traj.vel_off.append(speed)
+#         #     traj.n_after_off  += 1
+
+#         # if traj.time < modelP.promoter._t_off:
+#         #     traj.n_before_off += 1
+#         # else:
+#         #     traj.n_after_off  += 1
+
+#         traj.termination_times.append(traj.time)
+#         traj.termination_escape_times.append(r.tesc)
+
+
+
+
+#         # 3) increment transcript count
+#         traj.Ntranscripts += 1
+
+
+#         # ELONGATION TIME
+#         traj.elongation_times["mean"] = (
+#             traj.elongation_times["n"] * traj.elongation_times["mean"]
+#             + traj.time
+#             - RNAP_list[0].tesc
+#         ) / (traj.elongation_times["n"] + 1)
+#         traj.elongation_times["n"] += 1
+
+#         # PRODUCTION TIME
+#         if traj.time_last_prod > 0:
+#             traj.prod_times["mean"] = (
+#                 traj.prod_times["n"] * traj.prod_times["mean"]
+#                 + traj.time
+#                 - traj.time_last_prod
+#             ) / (traj.prod_times["n"] + 1)
+#             traj.prod_times["n"] += 1
+#         traj.time_last_prod = traj.time
+
+#         # TRANSCRIPT TERMINATION
+#         # 1. We update the upstream RNAP, if it exists        
+#         if len(RNAP_list) > 1: # at least 2 RNAPs: upating of the upstream RNAP (index = 1)
+#             RNAP_list[1].Lk0['down'] += RNAP_list[0].Lk0['down']
+#             if RNAP_list[1].t_elongating:
+#                 # only downstream properties are updated                
+#                 RNAP_list[1].Lk['down'] += RNAP_list[0].Lk['down']
+#                 RNAP_list[1].sigma['down'] = _sigma(RNAP_list[1], 'down')
+#             else:
+#                 # both upstrean and dowsntream properties are updtaed from sigma of the domain
+#                 RNAP_list[1].sigma['up'] = (
+#                     modelP.gene.Lk_domain - modelP.gene.Lk0_domain
+#                 ) / modelP.gene.Lk0_domain
+#                 RNAP_list[1].Lk['up'] = (1 + RNAP_list[1].sigma['up']) * RNAP_list[1].Lk0['up']
+
+#                 RNAP_list[1].sigma['down'] = RNAP_list[1].sigma['up']
+#                 RNAP_list[1].Lk['down'] = (1 + RNAP_list[1].sigma['down']) * RNAP_list[1].Lk0['down']
+#         # 2: We remove the RNAP
+#         del RNAP_list[0]
+
+#         #if not traj.Ntranscripts % simuP.Nevery_transcripts: (original)
+#         if traj.Ntranscripts == 1 or not traj.Ntranscripts % simuP.Nevery_transcripts:
+#             write_transcripts_on_the_fly(traj, simuP)
+
+        
+
+#     return
+
 def termination_stage(modelP: ModelParam, simuP: SimuParam, RNAP_list, traj: Trajectory):
     """Termination stage: transcript production by the most downstream RNAP"""
 
@@ -447,8 +593,7 @@ def termination_stage(modelP: ModelParam, simuP: SimuParam, RNAP_list, traj: Tra
         # 2: We remove the RNAP
         del RNAP_list[0]
 
-        #if not traj.Ntranscripts % simuP.Nevery_transcripts: (original)
-        if traj.Ntranscripts == 1 or not traj.Ntranscripts % simuP.Nevery_transcripts:
+        if not traj.Ntranscripts % simuP.Nevery_transcripts:
             write_transcripts_on_the_fly(traj, simuP)
 
     return

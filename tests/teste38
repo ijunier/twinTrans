@@ -1,0 +1,144 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# 1) Dados de simulação
+# =========================
+data = [
+    ("kb",     0.010, 112.563088),
+    ("kb",     0.453,  83.320568),
+    ("kb",   100.000,  82.890564),
+    ("ke",     0.010,  80.036460),
+    ("ke",    10.000,  82.811432),
+    ("ko",     0.010,  80.169580),
+    ("ko",   100.000,  83.420148),
+    ("nsgyrase",1e-6,  79.606184),
+    ("nstopo1", 1e-6,  90.890096),
+    ("sgyrase", 0.020,1251.418612),
+    ("stopo1",  0.010, 779.104032),
+    ("tss",   100.000,109.763228),
+    ("tss",  5000.000, 66.977648),
+]
+df = pd.DataFrame(data, columns=["param","value","elong_time_sim"])
+
+# =========================
+# 2) Parâmetros do modelo
+# =========================
+L      = 900.0      # bp
+Ld     = 520.0      # bp
+v_max  = 25.0       # bp/s
+G      = 18.5       # pN.nm
+A      = 300.0      # pN.nm
+phi    = 1.0/10.5   # turns/bp
+rel    = 30.0       # bp
+
+# taxas (defaults)
+lambda_ns_I_def = 1e-4   # /bp/s  (TopoI ns)
+Lambda_s_I_def  = 1.0    # /s     (TopoI específica)
+lambda_ns_G_def = 1e-4   # /bp/s  (Gyrase ns)
+Lambda_s_G_def  = 2.0    # /s     (Gyrase específica)
+
+# geometria default
+D_up_def   = 1000.0
+D_down_def = L + Ld
+
+# parâmetros do gating de TopoI específica
+sigma_a = -0.05   # limiar (TopoI age quando sigma < -0.05)
+w_gate  = 0.01    # largura do degrau suave
+
+def stable_logistic(z):
+    # clamp para evitar overflow em exp
+    z = np.clip(z, -60.0, 60.0)
+    return 1.0 / (1.0 + np.exp(-z))
+
+def fI_of_sigma(sig_up):
+    # sig_up é NEGATIVO; queremos f~1 quando sig_up << sigma_a (mais negativo)
+    # usar forma estável: f = 1/(1+exp((sig_up - sigma_a)/w))
+    z = -(sig_up - sigma_a)/w_gate  # trocar sinal para reaproveitar stable_logistic
+    return stable_logistic(z)
+
+# =========================
+# 3) Modelo "antigo" (referência)
+# =========================
+def T_elong_modelo_antigo(row):
+    D_up   = row.value if row.param=="tss" else D_up_def
+    D_down = D_down_def
+
+    lam_ns_I = row.value if row.param=="nstopo1" else lambda_ns_I_def
+    Lam_s_I  = row.value if row.param=="stopo1"  else Lambda_s_I_def
+    lam_ns_G = row.value if row.param=="nsgyrase" else lambda_ns_G_def
+    Lam_s_G  = row.value if row.param=="sgyrase"  else Lambda_s_G_def
+
+    lam0 = (lam_ns_I*D_up + Lam_s_I) + (lam_ns_G*D_down + Lam_s_G)
+    v_eff = v_max / (1.0 + (A*phi*v_max)/(G*lam0))
+    return L / v_eff
+
+# =========================
+# 4) Modelo upstream com gating (corrigido)
+# =========================
+def T_elong_upstream_gated(row, tol=1e-9, max_iter=500, mix=0.3):
+    # domínios
+    D_up   = row.value if row.param=="tss" else D_up_def
+    D_down = D_down_def  # não entra no throttle upstream
+
+    # Lk0_up em turns (até a RNAP no início)
+    rnap_xi = max(D_up - rel/2.0, 1e-6)         # bp
+    Lk0_up  = max(rnap_xi/10.5, 1e-12)          # turns
+
+    # taxas ajustáveis
+    lam_ns_I = row.value if row.param=="nstopo1" else lambda_ns_I_def
+    Lam_s_I  = row.value if row.param=="stopo1"  else Lambda_s_I_def
+
+    sigma_stall = -G/A          # negativo
+    s = -1e-6                   # começar ligeiramente negativo
+
+    for _ in range(max_iter):
+        fI   = fI_of_sigma(s)   # s ≤ 0
+        lam_up = lam_ns_I*D_up + fI*Lam_s_I
+        lam_up = max(lam_up, 1e-12)
+
+        # v_eff depende de s; lembrar que s/sigma_stall é positivo (neg/neg)
+        v_eff = v_max * max(0.0, 1.0 - s/sigma_stall)
+        # estado estacionário upstream: 0 = -(phi*v_eff)/Lk0_up - lam_up*s
+        rhs = - (phi * v_eff) / (Lk0_up * lam_up)
+
+        # under-relaxation
+        s_new = mix*rhs + (1.0-mix)*s
+
+        # clamp físico: s não pode ser mais negativo que sigma_stall
+        s_new = max(s_new, sigma_stall)
+
+        if abs(s_new - s) < tol:
+            s = s_new
+            break
+        s = s_new
+
+    v_eff = v_max * max(0.0, 1.0 - s/sigma_stall)
+    v_eff = max(v_eff, 1e-9)
+    return L / v_eff
+
+# =========================
+# 5) Calcular, imprimir e plotar
+# =========================
+df["T_theo_old"]   = df.apply(T_elong_modelo_antigo, axis=1)
+df["T_theo_gated"] = df.apply(T_elong_upstream_gated, axis=1)
+
+print(df[["param","value","elong_time_sim","T_theo_old","T_theo_gated"]]
+      .to_string(index=False, float_format=lambda x: f"{x:.6g}"))
+
+plt.figure(figsize=(11,5))
+x = np.arange(len(df))
+labels = [f"{p}:{v:.3g}" for p,v in zip(df.param, df.value)]
+
+plt.plot(x, df["elong_time_sim"], "o-",  label="Simulação", lw=2)
+plt.plot(x, df["T_theo_old"],   "s--", label="Teórico (antigo)", lw=2)
+plt.plot(x, df["T_theo_gated"], "D-.", label="Teórico (upstream + gating)", lw=2)
+
+plt.xticks(x, labels, rotation=45, ha="right")
+plt.ylabel("Tempo de elongação (s)")
+plt.title("Simulado vs. Teórico: modelo antigo × upstream com gating (corrigido)")
+plt.legend()
+plt.tight_layout()
+plt.show()
+

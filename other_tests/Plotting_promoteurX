@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+import os, re
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# 1) Caminho de entrada
+# =========================
+# Ex.: "results/promfollow/A_200/tss_5000"
+folder = "results/promfollow/A_300/tss_5000"
+
+# Tenta achar o arquivo (aceita dois nomes comuns)
+candidates = [
+    os.path.join(folder, "traj_promoter.txt"),
+    os.path.join(folder, "traj.promoter"),
+    os.path.join(folder, "traj.promoter.txt"),
+]
+fn = next((p for p in candidates if os.path.isfile(p)), None)
+if fn is None:
+    raise FileNotFoundError(f"Nenhum traj.* encontrado em: {folder}")
+
+# =========================
+# 2) Parse de A e tss do caminho
+# =========================
+mA   = re.search(r"A_(\d+(?:\.\d+)?)", folder)
+A    = float(mA.group(1)) if mA else 300.0  # fallback
+mtss = re.search(r"tss_(\d+)", folder)
+tss  = int(mtss.group(1)) if mtss else None
+
+# Parâmetros mecânicos
+G        = 18.5          # pN·nm (stall torque)
+sigma_o  = -0.05
+sigma_stall = -G / A
+
+# =========================
+# 3) Ler dados
+# =========================
+# Se o arquivo tiver tabs, sep="\t"; se for whitespace, sep="\s+"
+try:
+    df = pd.read_csv(fn, sep="\t")
+except Exception:
+    df = pd.read_csv(fn, sep=r"\s+")
+
+# Espera colunas: time, sigma (e opcional t_upRNAPelong)
+if not {"time", "sigma"}.issubset(df.columns):
+    raise ValueError(f"Colunas esperadas não encontradas em {fn}. Tem: {list(df.columns)}")
+
+# =========================
+# 4) Plot
+# =========================
+plt.figure(figsize=(7.0, 4.5))
+plt.plot(df["time"], df["sigma"], lw=1.2, label="σ(t) at promoter")
+
+# Linha do limiar de OC (σ0)
+plt.axhline(sigma_o, color="red", ls="--", lw=1.2, label=f"σ₀ = {sigma_o:.2f}")
+
+# Linha do stall (σ_stall = -G/A)
+plt.axhline(sigma_stall, color="green", ls="--", lw=1.2,
+            label=f"σ_stall = -{G}/{A:g} ≈ {sigma_stall:.4f}")
+
+# (opcional) pintar onde σ > σ0
+plt.fill_between(
+    df["time"], df["sigma"], sigma_o,
+    where=(df["sigma"] > sigma_o),
+    color="red", alpha=0.25, interpolate=True, label="σ > σ₀"
+)
+
+title = f"Promoter supercoiling over time  A_{A:g}"
+if tss is not None:
+    title += f"  tss_{tss}"
+plt.title(title)
+plt.xlabel("Time (s)")
+plt.ylabel("Promoter σ (supercoiling density)")
+plt.grid(True, ls=":")
+plt.legend()
+plt.tight_layout()
+plt.show()

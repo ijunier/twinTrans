@@ -1,0 +1,68 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Simulated data provided
+distances = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000]
+As = [200, 233, 267, 300, 333, 367]
+sim_values = [
+    [94.775872, 100.799064, 105.438544, 108.995808, 112.457480, 115.994708],
+    [85.683848,  92.409964,  99.463164,  105.930240, 110.807924, 114.983956],
+    [82.563592,  89.006612,  96.692028,  103.515472, 109.246292, 115.172788],
+    [81.718764,  86.344536,  93.984072,  102.044444, 108.520784, 114.170236],
+    [78.422436,  81.261212,  85.176672,  94.464468, 104.312520, 113.542600],
+    [75.446092,  76.905688,  78.862932,  82.989236,  94.292052, 110.466452],
+    [71.926500,  72.898484,  74.104520,  75.767280,  81.028140, 105.702060],
+    [69.192792,  70.240136,  71.002288,  72.086152,  75.109692, 101.412504],
+    [66.608792,  67.915612,  68.255540,  68.822540,  71.078900,  97.423932],
+    [64.680700,  65.582692,  66.098008,  67.034956,  68.415760,  94.136632],
+]
+
+# Build simulation DataFrame
+sim_df = pd.DataFrame(sim_values, index=distances, columns=As).reset_index().melt(id_vars='index', var_name='A', value_name='T_sim')
+sim_df.rename(columns={'index':'tss'}, inplace=True)
+
+# Theoretical function using full domain
+def theoretical_T_elong(L, v_max, G, A, tss, Ldown,
+                        lambda_ns, Lambda_s,
+                        lambda_ns_g, Lambda_s_g,
+                        phi=1/10.5):
+    D_dom = tss + L + Ldown
+    lambda0 = (lambda_ns * D_dom + Lambda_s) + 2*(lambda_ns_g * D_dom + Lambda_s_g)
+    v_eff = v_max / (1 + (A * phi * v_max) / (G * lambda0))
+    return L / v_eff
+
+# Default parameters
+L = 520
+Ldown = 520
+v_max = 25
+G = 18.5
+lambda_ns = 1e-4
+lambda_ns_g = 1e-4
+Lambda_s = 1.0
+Lambda_s_g = 2.0
+
+# Compute theoretical values
+sim_df['T_theo'] = sim_df.apply(
+    lambda row: theoretical_T_elong(L, v_max, G,
+                                    row['A'], row['tss'], Ldown,
+                                    lambda_ns, Lambda_s,
+                                    lambda_ns_g, Lambda_s_g),
+    axis=1)
+
+# Plot comparison
+plt.figure(figsize=(10,6))
+for A_val in As:
+    subset = sim_df[sim_df['A']==A_val]
+    plt.plot(subset['tss'], subset['T_sim'], marker='o', label=f'Sim A={A_val}')
+    plt.plot(subset['tss'], subset['T_theo'], marker='s', linestyle='--', label=f'Theo A={A_val}')
+
+plt.xscale('log')
+plt.xlabel('Upstream Distance tss (bp)')
+plt.ylabel('Mean Elongation Time (s)')
+plt.title('Comparação: Simulação vs Teoria usando D_dom')
+plt.legend(ncol=2, fontsize='small')
+plt.grid(True, which='both', ls='--', lw=0.5)
+plt.tight_layout()
+plt.show()
+

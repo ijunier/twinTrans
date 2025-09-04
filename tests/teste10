@@ -1,0 +1,35 @@
+import numpy as np
+from scipy.special import erf, erfc
+
+# 1) parâmetros originais
+lambda_ns  = 1e-4      # TopoI ns (/Lk-unit/s)
+lambda_ns_g= 1e-4      # Gyrase ns (/Lk-unit/s)
+Lambda_s   = 1         # TopoI specific (/s)
+Lambda_s_g = 2         # Gyrase specific (/s)
+phi        = 1/10.5
+L, v_max, G, A = 520, 25, 18.5, 300
+
+sigma_active = -0.05
+sigma_stall  = -G/A     # ≈ -0.0617
+
+def solve_T_elong(D, c_noise):
+    # 2) taxa não-específica total
+    lam_ns_tot = lambda_ns*D + 0.5*lambda_ns_g*D
+
+    # 3) equações auto‐consistentes
+    sigma_bar = -0.06   # chute inicial
+    for _ in range(50):
+        # drift linearizado
+        k = lam_ns_tot + (A*phi*v_max)/G
+        # variança de sigma
+        var_s = (c_noise/D)/k
+        # probabilidades
+        pI = 0.5*(1 + erf((sigma_active - sigma_bar)/np.sqrt(2*var_s)))
+        pG = 0.5*erfc((sigma_stall  - sigma_bar)/np.sqrt(2*var_s))
+        # nova taxa total
+        lam0 = lam_ns_tot + Lambda_s*pI + 0.5*Lambda_s_g*pG
+        # v_eff e novo σ_bar
+        v_eff = v_max*(1 - A*sigma_bar/G)
+        sigma_bar = phi*v_eff/lam0
+
+    return L / (v_max*(1 - A*sigma_bar/G))

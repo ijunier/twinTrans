@@ -1,0 +1,49 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+def theoretical_T_elong(L, v_max, G, A, tss, Ld,
+                        lambda_ns, Lambda_s,
+                        lambda_ns_g, Lambda_s_g,
+                        phi=1/10.5):
+    # domínio total de superenrolamento
+    D_dom = tss + L + Ld
+    # taxa total (TopoI + girase)
+    lambda0 = (lambda_ns * D_dom + Lambda_s) \
+            + (lambda_ns_g * D_dom + Lambda_s_g)
+    # velocidade efetiva
+    v_eff = v_max / (1 + (A * phi * v_max) / (G * lambda0))
+    return L / v_eff
+
+# parâmetros fixados na sua simulação
+L, v_max, G = 520, 25, 18.5
+lambda_ns, Lambda_s = 1e-4, 1.0
+lambda_ns_g, Lambda_s_g = 1e-4, 2.0
+phi = 1/10.5
+Ld = 520
+tss = 1000
+
+# variações de A que você testou
+As = [200, 233, 267, 300, 333, 367]
+
+# monte as previsões
+res = []
+for A in As:
+    T_th = theoretical_T_elong(L, v_max, G, A, tss, Ld,
+                               lambda_ns, Lambda_s,
+                               lambda_ns_g, Lambda_s_g, phi)
+    res.append({'A (pN·nm)': A, 'T_theoretical (s)': T_th})
+df = pd.DataFrame(res)
+
+# valores da simulação que você me deu (coluna elong_time)
+sim = pd.Series([74.86, 83.03, 94.91, 83.09, 94.43, 112.80],
+                index=As, name='T_sim (s)')
+
+# combine e plote
+df = df.set_index('A (pN·nm)').join(sim)
+df.plot(marker='o')
+plt.xlabel('A (pN·nm)')
+plt.ylabel('T_elong (s)')
+plt.title('Modelo corrigido vs simulação (tss=1000)')
+plt.grid(True)
+plt.show()

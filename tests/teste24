@@ -1,0 +1,83 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+
+# --- Curva de referência experimental ---
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+])
+
+# --- Parâmetros do modelo ---
+gene_L      = 900.0     # bp
+gene_Ldown  = 520.0     # bp
+v_max       = 25.0      # bp/s
+G           = 18.5      # pN·nm
+phi         = 1/10.5
+
+A_def           = 300.0     # pN·nm
+lambda_ns_def   = 1e-4      # topoI non-specific (/bp/s)
+Lambda_s_def    = 1.0       # topoI specific (/s)
+lambda_ns_g_def = 1e-4      # gyrase non-specific (/bp/s)
+Lambda_s_g_def  = 2.0       # gyrase specific (/s)
+
+tss_def     = 1000.0        # upstream barrier (bp)
+D_sat       = 1000.0        # escala de saturação upstream (bp)
+kappa       = 0.01      # força do termo exponencial
+alpha = 0.0001
+
+# --- Função T_total_model_improved ---
+def T_total_model_improved(row):
+    tss      = row['value'] if row['param']=='tss' else tss_def
+    L_dom    = tss + gene_L + gene_Ldown
+    Lk0_dom  = L_dom / 10.5
+    D_up     = tss
+    D_down   = gene_L + gene_Ldown
+
+    A        = row['value'] if row['param']=='A'        else A_def
+    lam_ns   = row['value'] if row['param']=='nstopo1'  else lambda_ns_def
+    Lam_s    = row['value'] if row['param']=='stopo1'   else Lambda_s_def
+    lam_ns_g = row['value'] if row['param']=='nsgyrase' else lambda_ns_g_def
+    Lam_s_g  = row['value'] if row['param']=='sgyrase'  else Lambda_s_g_def
+
+    # Taxas de relaxamento com saturação upstream
+    lam_I = lam_ns * D_up + Lam_s
+    lam_G = lam_ns_g * D_down + Lam_s_g
+    lam0  = lam_I + lam_G
+
+    # Velocidade efetiva com termo exponencial
+    x = (A * phi * v_max) / (G * lam0)
+    
+    v_eff = (v_max / (1 + alpha * x)) * np.exp(-kappa * x)
+
+    # Tempo livre de elongação
+    t_free = gene_L / v_eff
+
+    # Stalls explícitos
+    sigma_stall = - G / A
+    dx_stall    = abs(sigma_stall) * L_dom
+    N_stalls    = gene_L / dx_stall
+    n_ev        = math.ceil(Lk0_dom)
+    k_rel       = lam0
+    t_stall     = n_ev / k_rel
+
+    return t_free + N_stalls * t_stall
+
+# --- Varredura em tss ---
+
+T_model = [T_total_model_improved({'param':'tss','value':tss}) for tss in tss_array]
+
+# --- Plotagem ---
+plt.figure(figsize=(8,5))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.plot(tss_array, T_model, '-', label='Modelo teórico')
+plt.xscale('log')
+plt.xlabel("tss (bp)")
+plt.ylabel("Tempo de elongação T (s)")
+plt.title("Comparação: Dados reais vs. Modelo teórico")
+plt.grid(True, which='both', ls=':')
+plt.legend()
+plt.tight_layout()
+plt.show()

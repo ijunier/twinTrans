@@ -1,0 +1,191 @@
+#!/usr/bin/env python3
+import os, re, glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from math import log10
+
+# ---------- CONFIG ----------
+ROOT  = "results_final_kb_0.453"
+KO    = 0.238731          # escolher a pasta ko_*
+KB    = 0.453             # kb fixo (medium promoter)
+KE    = 100.0             # escape do OC
+LGENE = 900.0             # bp
+LCLEAR = 30.0             # bp de clearance
+TSS_LIST = [100, 1000, 5000]
+
+# P_open / P_OC (A=300) medidos por você (interpolamos para os tss de interesse)
+_tss_tab = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000], float)
+_POC_tab = np.array([0.746,0.767,0.780,0.796,0.843,0.943,0.982,0.993,0.998,0.998,1.000,0.999,1.000,1.000,1.000,1.000,1.000], float)
+# Usaremos P_open(d) = P_OC(d) (se quiser separar, troque aqui)
+def P_open(d): 
+    return float(np.clip(np.interp(d, _tss_tab, _POC_tab), 1e-4, 1.0))
+def P_OC(d): 
+    return P_open(d)
+
+# --------- I/O helpers ---------
+def parse_val(name, key):
+    m = re.search(rf"{key}_([\d\.Ee+-]+)", name)
+    return float(m.group(1)) if m else None
+
+def read_mean_properties(path):
+    # tenta tab, cai para whitespace
+    try:    df = pd.read_csv(path, sep="\t")
+    except: df = pd.read_csv(path, sep=r"\s+")
+    # garante ordenação por transcripts_nb
+    if "transcripts_nb" in df.columns:
+        df = df.sort_values("transcripts_nb")
+    return df
+
+def elong_speed_from_file(mean_file):
+    df = read_mean_properties(mean_file)
+    # usa linha de n=10000 ou a última
+    row = None
+    if "transcripts_nb" in df.columns:
+        hit = df[df["transcripts_nb"]==10000]
+        row = hit.iloc[0] if len(hit)>0 else df.iloc[-1]
+    else:
+        row = df.iloc[-1]
+    T_elong = float(row["mean_elong_time"])
+    return LGENE / T_elong
+
+# ---------- Empirical kc ----------
+def kc_empirical(vs, ks):
+    """
+    vs: velocidades (array)
+    ks: k_unbinding (array)
+    Retorna:
+      kc_inflex, kc_maxslope, extras dict com derivadas
+    """
+    x = np.log10(ks)
+    v = np.array(vs, float)
+
+    # suavização leve (média móvel 3) para derivadas estáveis
+    def smooth(y):
+        if len(y) < 3: return y.copy()
+        yy = y.copy()
+        yy[1:-1] = (y[:-2] + y[1:-1] + y[2:]) / 3.0
+        return yy
+
+    v_sm = smooth(v)
+
+    # derivada central em x = log10(k)
+    dv = np.zeros_like(v_sm)
+    d2v = np.zeros_like(v_sm)
+    for i in range(1, len(v_sm)-1):
+        dx1 = x[i] - x[i-1]
+        dx2 = x[i+1] - x[i]
+        dv[i]  = ( (v_sm[i+1]-v_sm[i])/dx2*(dx1/(dx1+dx2)) + (v_sm[i]-v_sm[i-1])/dx1*(dx2/(dx1+dx2)) )
+    # seg. derivada por três pontos
+    for i in range(1, len(v_sm)-1):
+        d2v[i] = (v_sm[i+1] - 2*v_sm[i] + v_sm[i-1]) / ((x[i+1]-x[i])*(x[i]-x[i-1]))
+
+    # máx inclinação (valor absoluto)
+    idx_slope = np.argmax(np.abs(dv[1:-1])) + 1
+    kc_maxslope = 10**x[idx_slope]
+
+    # inflexão: primeiro zero-cross de d2v (ou o mais próximo do pico de |dv|)
+    kc_inflex = np.nan
+    zc = []
+    for i in range(1, len(d2v)):
+        if d2v[i-1]*d2v[i] < 0:
+            # interpolação linear em x
+            w = abs(d2v[i-1]) / (abs(d2v[i-1])+abs(d2v[i]))
+            x0 = x[i-1]*(1-w) + x[i]*w
+            zc.append(10**x0)
+    if len(zc)>0:
+        # escolha o zero-cross mais próximo do pico de inclinação
+        kc_inflex = min(zc, key=lambda z: abs(log10(z)-x[idx_slope]))
+
+    return kc_inflex, kc_maxslope, {"x":x, "v":v, "dv":dv, "d2v":d2v, "idx_slope":idx_slope}
+
+# ---------- Theoretical kc ----------
+def kc_theoretical(d, kb, ko, ke, v_eff, Lclear=LCLEAR):
+    Popen = P_open(d)
+    Poc   = P_OC(d)
+    Delta = (1.0/(kb*Popen)) + (1.0/(ko*Poc)) + (1.0/ke) + (Lclear/float(v_eff))
+    return 1.0/Delta
+
+# ---------- Main: read curves, compute kc, plot ----------
+ko_dir = os.path.join(ROOT, f"ko_{KO:g}")
+kun_dirs = sorted(glob.glob(os.path.join(ko_dir, "kun_*")), key=lambda p: parse_val(p,"kun"))
+kuns = np.array([parse_val(p,"kun") for p in kun_dirs], float)
+
+curves = {}   # tss -> (kuns, vlist)
+kc_rows = []  # summary table
+
+for tss in TSS_LIST:
+    vlist = []
+    for kun_dir in kun_dirs:
+        mean_file = os.path.join(kun_dir, f"tss_{tss}", "mean_properties.txt")
+        if not os.path.isfile(mean_file):
+            vlist.append(np.nan); continue
+        vlist.append(elong_speed_from_file(mean_file))
+    vlist = np.array(vlist, float)
+
+    # limpa NaNs
+    mask = np.isfinite(vlist)
+    k_arr = kuns[mask]; v_arr = vlist[mask]
+    curves[tss] = (k_arr, v_arr)
+
+    # --- kc experimental (dois critérios)
+    kc_inf, kc_slope, _diag = kc_empirical(v_arr, k_arr)
+
+    # --- v_eff (melhor = "local": média dos pontos com k <= kc_emp; fallback = platô)
+    if np.isfinite(kc_inf):
+        local_mask = k_arr <= kc_inf
+        if local_mask.sum() >= 2:
+            v_eff_local = v_arr[local_mask].mean()
+        else:
+            v_eff_local = v_arr[0]
+    else:
+        v_eff_local = v_arr[0]   # fallback platô
+    v_eff_plateau = v_arr[0]
+
+    # --- kc teórico com v_eff local e com platô
+    kc_th_local   = kc_theoretical(tss, KB, KO, KE, v_eff_local)
+    kc_th_plateau = kc_theoretical(tss, KB, KO, KE, v_eff_plateau)
+
+    kc_rows.append({
+        "TSS": tss,
+        "v_eff_plateau": v_eff_plateau,
+        "v_eff_local": v_eff_local,
+        "k_c_emp_inflex": kc_inf,
+        "k_c_emp_maxslope": kc_slope,
+        "k_c_th_local": kc_th_local,
+        "k_c_th_plateau": kc_th_plateau,
+    })
+
+# ---- tabela resumo ----
+summary = pd.DataFrame(kc_rows).set_index("TSS").sort_index()
+print("\nResumo k_c (ajuste com 1/(k_b*P_open) e v_eff local):")
+print(summary.to_string(float_format=lambda x: f"{x:.5g}"))
+
+# ---- plot ----
+plt.figure(figsize=(12,5.5))
+colors = {100:"#1f77b4",1000:"#ff7f0e",5000:"#2ca02c"}
+for tss in TSS_LIST:
+    k_arr, v_arr = curves[tss]
+    c = colors[tss]
+    plt.plot(k_arr, v_arr, "o-", color=c, label=f"TSS = {tss} bp")
+    # linhas verticais
+    r = summary.loc[tss]
+    if np.isfinite(r["k_c_emp_inflex"]):
+        plt.axvline(r["k_c_emp_inflex"], color=c, ls=":",  lw=1.5, alpha=0.9,
+                    label=f"k_c emp (inflex, {tss}) ≈ {r['k_c_emp_inflex']:.4g}")
+    if np.isfinite(r["k_c_emp_maxslope"]):
+        plt.axvline(r["k_c_emp_maxslope"], color=c, ls="-.", lw=1.5, alpha=0.9,
+                    label=f"k_c emp (máx|dv/dlogk|, {tss}) ≈ {r['k_c_emp_maxslope']:.4g}")
+    plt.axvline(r["k_c_th_local"],   color=c, ls="--", lw=1.8, alpha=0.9,
+                label=f"k_c teórico (local, {tss}) ≈ {r['k_c_th_local']:.4g}")
+    # (opcional) mostrar também o do platô:
+    # plt.axvline(r["k_c_th_plateau"], color=c, ls="--", lw=1, alpha=0.5)
+
+plt.xscale("log")
+plt.xlabel(r"$k_{\rm unbinding}$ (s$^{-1}$)")
+plt.ylabel("Elongation velocity v (bp/s)")
+plt.title(f"v × k_un (kb={KB:g}, ko≈{KO:g})\nLinhas: k_c empírico (· · / -.) e teórico (--)")
+plt.grid(True, which="both", ls=":", alpha=0.4)
+plt.legend(ncol=2, fontsize=9)
+plt.tight_layout()
+plt.show()

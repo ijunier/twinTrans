@@ -1,0 +1,46 @@
+from pathlib import Path
+import pandas as pd
+
+root = Path(r".\model_simulations")
+
+rows = []
+for sim in root.iterdir():
+    if not sim.is_dir() or not sim.name.startswith("padrao_"):
+        continue
+
+    # extrai do nome da pasta: padrao_<param>_<valor>
+    _, param_name, param_value = sim.name.split("_", 2)
+
+    mean_props = sim / "mean_properties.txt"
+    if not mean_props.exists():
+        continue
+
+    # carrega todo o dataframe
+    df = pd.read_csv(mean_props, sep="\t")
+
+    # pega apenas a linha onde transcripts_nb é máximo (10000)
+    # (poderia filtrar por ==10000 também)
+    last = df.loc[df["transcripts_nb"] == df["transcripts_nb"].max()].iloc[0]
+
+    bind = last["mean_bind_time"]
+    ocf  = last["mean_ocf_time"]
+    esc  = last["mean_esc_time"]
+    elong  = last["mean_elong_time"]
+    total_init = bind + ocf + esc
+
+    rows.append({
+        "param":       param_name,
+        "value":       float(param_value),
+        "transcripts": int(last["transcripts_nb"]),
+        "bind_time":   bind,
+        "ocf_time":    ocf,
+        "escape_time": esc,
+        "elong_time": elong,
+        "total_init":  total_init,
+        
+    })
+
+summary = pd.DataFrame(rows)
+print(summary)
+
+

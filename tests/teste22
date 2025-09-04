@@ -1,0 +1,112 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- Dados simulados para comparação (tss=1000 no resto dos parâmetros) ---
+data = [
+    ("kb",      0.01,  112.563088),
+    ("kb",      0.453,   83.320568),
+    ("kb",     100.0,   82.890564),
+    ("ke",      0.01,   80.036460),
+    ("ke",     10.0,    82.811432),
+    ("ko",      0.01,   80.169580),
+    ("ko",    100.0,    83.420148),
+    ("nsgyrase",1e-6,   79.606184),
+    ("nstopo1", 1e-6,   90.890096),
+    ("sgyrase", 0.02,  1251.418612),
+    ("stopo1",  0.01,   779.104032),
+    ("tss",   100.0,   109.763228),
+    ("tss",  5000.0,    66.977648),
+]
+df = pd.DataFrame(data, columns=['param','value','elong_sim'])
+
+import math
+import pandas as pd
+import numpy as np
+
+# ——————————————————————————————————————————————
+# 1) Parâmetros padrão
+# ——————————————————————————————————————————————
+gene_L      = 900.0     # bp
+gene_Ldown  = 520.0     # bp
+v_max       = 25.0      # bp/s
+G           = 18.5      # pN·nm
+phi         = 1/10.5
+
+A_def           = 300.0     # pN·nm
+lambda_ns_def   = 1e-4      # topoI non-specific (/bp/s)
+Lambda_s_def    = 1.0       # topoI specific (/s)
+lambda_ns_g_def = 1e-4      # gyrase non-specific
+Lambda_s_g_def  = 2.0       # gyrase specific
+
+tss_def     = 1000.0        # upstream barrier (bp)
+D_sat       = 1000.0        # escala de saturação upstream (bp)
+kappa       = 0.005           # força do termo exponencial
+
+# ——————————————————————————————————————————————
+# 2) Função combinada melhorada
+# ——————————————————————————————————————————————
+def T_total_model_improved(row):
+    # 2.1) Domínio topológico e sub-domínios up/down
+    tss      = row['value'] if row['param']=='tss' else tss_def
+    L_dom    = tss + gene_L + gene_Ldown
+    Lk0_dom  = L_dom / 10.5
+    D_up     = tss
+    D_down   = gene_L + gene_Ldown
+
+    # 2.2) Parâmetros variantes
+    A        = row['value'] if row['param']=='A'        else A_def
+    lam_ns   = row['value'] if row['param']=='nstopo1'  else lambda_ns_def
+    Lam_s    = row['value'] if row['param']=='stopo1'   else Lambda_s_def
+    lam_ns_g = row['value'] if row['param']=='nsgyrase' else lambda_ns_g_def
+    Lam_s_g  = row['value'] if row['param']=='sgyrase'  else Lambda_s_g_def
+
+    # 2.3) Taxas de relaxamento com saturação upstream
+    lam_I = lam_ns * (D_up / (D_up + D_sat)) + Lam_s
+    lam_G = lam_ns_g * D_down + Lam_s_g
+    lam0  = lam_I + lam_G
+
+    # 2.4) Velocidade efetiva com termo exponencial
+    exponent = (A * phi * v_max) / (G * lam0)
+    v_eff    = v_max * math.exp(-kappa * exponent)
+
+    # 2.5) Tempo “livre” de elongação
+    t_free = gene_L / v_eff
+
+    # 2.6) Stalls explícitos
+    sigma_stall = - G / A
+    dx_stall    = abs(sigma_stall) * L_dom
+    N_stalls    = gene_L / dx_stall
+    n_ev        = math.ceil(Lk0_dom)
+    k_rel       = lam0
+    t_stall     = n_ev / k_rel
+
+    return t_free + N_stalls * t_stall
+
+# ——————————————————————————————————————————————
+# 3) Exemplo de aplicação sobre seu DataFrame
+# ——————————————————————————————————————————————
+# Supondo que você tenha um DataFrame 'df' com colunas ['param','value','elong_time_sim']
+# basta fazer:
+#
+# df['elong_time_theo_imp'] = df.apply(T_total_model_improved, axis=1)
+#
+# e então plotar simulacao x teoria como antes.
+
+
+df['elong_theo'] = df.apply(T_total_model_improved, axis=1)
+
+# --- impressão e plotagem ---
+print(df[['param','value','elong_sim','elong_theo']])
+
+plt.figure(figsize=(10,5))
+x = np.arange(len(df))
+plt.plot(x, df['elong_sim'],   'o-', label='Simulação')
+plt.plot(x, df['elong_theo'],  's--', label='Teórico combinado')
+plt.xticks(x, [f"{p}:{v}" for p,v in zip(df.param,df.value)],
+           rotation=45, ha='right')
+plt.ylabel('T_elong (s)')
+plt.title('Simulado vs Teórico Mean‐Field + Stalls + kb‐dep')
+plt.legend()
+plt.tight_layout()
+plt.show()

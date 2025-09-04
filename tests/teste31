@@ -1,0 +1,116 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from math import erf, sqrt, exp, ceil
+
+# — Dados de referência —
+tss_list = np.array([100,200,250,300,500,1000,2000,3000])
+T_real   = np.array([108.996,105.930,103.515,102.044,
+                     94.464,  82.989,  75.767,  70.988])
+
+# — Parâmetros físicos —
+L        = 900.0       # bp
+Ld       = 520.0       # barreira downstream (bp)
+excluded = 30.0        # RNAP excluded length (bp)
+dx       = 1.0         # passo (bp)
+v_max    = 25.0        # bp/s
+tau0     = dx / v_max  # s por passo (~0.04)
+A        = 300.0       # pN·nm
+phi      = 1/10.5      # turns/bp
+G        = 18.5        # pN·nm stall torque
+sigma_stall = G/(A*phi)
+
+# — TopoI/gyrase —
+lambda_ns_I = 1e-4; Lambda_s_I  = 1.0
+lambda_ns_G = 1e-4; Lambda_s_G  = 2.0
+
+# — Taxa de avanço por passo (birth) —
+b = 1.0 / tau0
+
+def profiles(tss):
+    """Para cada x, retorna lam0(x), v_eff(x)."""
+    xs = np.arange(0, L, dx)
+    lam0 = np.zeros_like(xs)
+    v_eff = np.zeros_like(xs)
+    for i, x in enumerate(xs):
+        Dup   = (tss - excluded/2) + x
+        Ddown = (tss + L + Ld) - Dup
+        lamI  = lambda_ns_I*Dup + Lambda_s_I
+        lamG  = lambda_ns_G*Ddown + Lambda_s_G
+        lam0[i] = lamI + lamG
+        v_eff[i] = v_max / (1 + (A*phi*v_max)/(G*lam0[i]))
+    return xs, lam0, v_eff
+
+def stall_method1(lam0):
+    """Método 1: soma p_stall/lam0 usando born-death T0→aprox p_stall≈1."""
+    return np.sum(1.0/lam0)  # assume p_stall≈1 (worst case)
+
+def stall_method2(lam0, lamI, lamG):
+    """Método 2: birth-death exato → soma T0(x)."""
+    xs = np.arange(0, L, dx)
+    Tstall=0.0
+    n_star = int(ceil(sigma_stall/phi))
+    for i, x in enumerate(xs):
+        # montante/jusante
+        Dup   = (tss - excluded/2) + x
+        Ddown = (tss + L + Ld) - Dup
+        lamI  = lambda_ns_I*Dup + Lambda_s_I
+        lamG  = lambda_ns_G*Ddown + Lambda_s_G
+        lam0i = lamI + lamG
+        # montar A,c
+        A_mat = np.zeros((n_star,n_star))
+        c     = np.zeros(n_star)
+        for n in range(n_star):
+            denom = b + lam0i
+            c[n] = 1.0/denom
+            # birth
+            if n+1<n_star: A_mat[n,n+1] = -b/denom
+            # death I
+            pi = lamI/denom
+            A_mat[n,n-1 if n>0 else n] += -pi
+            # death G
+            pg = lamG/denom
+            to = n-2 if n>1 else 0
+            A_mat[n,to] += -pg
+            A_mat[n,n] += 1.0
+        T = np.linalg.solve(A_mat,c)
+        Tstall += T[0]
+    return Tstall
+
+def stall_method3(lam0):
+    """Método 3: mean-field: AφL/(G*<lam0>)."""
+    lam0_eff = np.mean(lam0)
+    return A*phi*L/(G*lam0_eff)
+
+def stall_method4(lam0, v_eff):
+    """Método 4: drift contínuo."""
+    return np.sum((1-np.exp(-lam0*(sigma_stall/(v_eff*phi))))*(v_eff/(lam0*phi)))
+
+# — Calcula todos os métodos para cada TSS —
+T1 = []; T2 = []; T3 = []; T4 = []; Tfw=[]
+for tss in tss_list:
+    xs, lam0, v_eff = profiles(tss)
+    # tempo de avanço contínuo
+    Tfw.append(np.sum(dx/v_eff))
+    # stalls
+    T1.append(stall_method1(lam0))
+    T2.append(stall_method2(lam0,None,None))
+    T3.append(stall_method3(lam0))
+    T4.append(stall_method4(lam0,v_eff))
+
+Tfw = np.array(Tfw)
+T1  = np.array(T1);  T2 = np.array(T2)
+T3  = np.array(T3);  T4 = np.array(T4)
+
+# — Monta e plota T_total = T_fw + T_stall —
+plt.figure(figsize=(8,5))
+plt.plot(tss_list, T_real, 'k.-', label='Simulação')
+plt.plot(tss_list, Tfw+T1,'b.--',label='Método 1 (p≈1)')
+plt.plot(tss_list, Tfw+T2,'g.--',label='Método 2 (birth-death)')
+plt.plot(tss_list, Tfw+T3,'m.--',label='Método 3 (mean-field)')
+plt.plot(tss_list, Tfw+T4,'r.--',label='Método 4 (drift)')
+plt.xscale('log')
+plt.xlabel('TSS (bp)'); plt.ylabel('T_elong (s)')
+plt.legend(); plt.grid( which='both', ls=':' )
+plt.tight_layout()
+plt.show()
+

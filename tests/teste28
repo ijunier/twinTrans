@@ -1,0 +1,112 @@
+import pandas as pd
+import numpy as np
+from math import erf
+import matplotlib.pyplot as plt
+
+# ─── Dados de entrada: resultados da simulação ───────────────────────────────────
+data = {
+    'param': ['kb', 'kb', 'kb',
+              'ke', 'ke',
+              'ko', 'ko',
+              'nsgyrase', 'nstopo1',
+              'sgyrase', 'stopo1',
+              'tss', 'tss'],
+    'value': [0.01, 0.453, 100,
+              0.01, 10,
+              0.01, 100,
+              1e-6, 1e-6,
+              0.02, 0.01,
+              100, 5000],
+    'bind_time_sim': [112.563088, 8.727905, 6.564215,
+                      108.332144, 8.770596,
+                      308.891580, 5.384446,
+                      9.241575, 8.935219,
+                      73.598159, 34.281756,
+                      10.472259, 7.924903],
+    'ocf_time_sim':   [  9.529760, 3.338121, 3.370990,
+                        3.315372, 3.333799,
+                      303.634149, 0.056551,
+                        3.978491, 3.247735,
+                       25.633742, 3.085667,
+                        4.242410, 3.102060],
+    'escape_time_sim':[ 0.040016, 0.040012, 0.040008,
+                       99.951724, 0.094567,
+                        0.040028, 0.040008,
+                        0.040020, 0.040016,
+                        0.040008, 0.040016,
+                        0.040004, 0.040008],
+}
+df = pd.DataFrame(data)
+
+# ─── Constrói init_time_sim ─────────────────────────────────────────────────────
+df['init_time_sim'] = df['ocf_time_sim'] + df['escape_time_sim']
+
+# ─── Parâmetros default ─────────────────────────────────────────────────────────
+defaults = {
+    'kb': 0.453,
+    'ko': 0.32,
+    'ke': 100.0,
+    'tss': 1000.0,
+    'A': 300.0,          # pN·nm
+    'phi': 1/10.5,       # turns per bp
+    'v_max': 25.0,       # bp/s
+    'G': 18.5,           # pN·nm
+    'lambda_ns': 1e-4,   # per bp·s
+    'Lambda_s': 1.0,     # per s
+    'lambda_ns_g': 1e-4, # per bp·s
+    'Lambda_s_g': 2.0,   # per s
+    'l_excl': 30.0       # bp
+}
+
+# ─── Funções auxiliares ────────────────────────────────────────────────────────
+def calc_v_eff(D, A, params):
+    lam0 = (params['lambda_ns'] * D + params['Lambda_s']) \
+         + 2*(params['lambda_ns_g'] * D + params['Lambda_s_g'])
+    return params['v_max'] / (1 + (A * params['phi'] * params['v_max'])/(params['G'] * lam0))
+
+def Psigma_gauss(D, sigma0=-0.05, A=defaults['A'], phi=defaults['phi'], kB_T=4.1):
+    var_sigma = kB_T / (A * phi**2 * D)
+    z = sigma0 / np.sqrt(2 * var_sigma)
+    return 0.5 * (1 + erf(z))
+
+def Psigma_mista(D):
+    return Psigma_gauss(D) if D < 1000 else 1.0
+
+# ─── Prepara colunas efetivas ─────────────────────────────────────────────────
+for p in ['kb', 'ko', 'ke', 'tss']:
+    df[f'{p}_eff'] = df['value'].where(df['param'] == p, defaults[p])
+df['A_eff'] = defaults['A']
+
+# ─── Cálculo de P_sigma ────────────────────────────────────────────────────────
+df['P_sigma'] = df['tss_eff'].apply(Psigma_mista)
+
+# ─── Cálculos teóricos ─────────────────────────────────────────────────────────
+df['escape_time_th'] = 1 / df['ke_eff']
+df['ocf_time_th']    = (1 / df['ko_eff']) / df['P_sigma']
+df['init_time_th']   = df['ocf_time_th'] + df['escape_time_th']
+df['v_eff']          = df.apply(lambda r: calc_v_eff(r['tss_eff'], r['A_eff'], defaults), axis=1)
+df['bind_time_th']   = (1/df['kb_eff']) + df['init_time_th'] + defaults['l_excl']/df['v_eff']
+
+# ─── Plotagem comparativa ──────────────────────────────────────────────────────
+times = [
+    ('bind_time',   'Tempo de Binding (s)'),
+    ('ocf_time',    'Tempo de OC-formation (s)'),
+    ('escape_time', 'Tempo de Escape (s)'),
+    ('init_time',   'Tempo Total de Iniciação (s)')
+]
+
+for key, label in times:
+    plt.figure(figsize=(6,4))
+    plt.plot(df['param'] + '=' + df['value'].astype(str),
+             df[f'{key}_sim'], 'o-', label='Simulação (código)')
+    plt.plot(df['param'] + '=' + df['value'].astype(str),
+             df[f'{key}_th'], 's--', label='Teoria')
+    plt.xticks(rotation=45, ha='right')
+    plt.xlabel('Parâmetro = Valor')
+    plt.ylabel(label)
+    plt.title(f'{label} – Sim vs Teoria')
+    plt.legend()
+    plt.tight_layout()
+
+plt.show()
+

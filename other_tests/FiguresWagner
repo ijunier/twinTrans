@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+import os, re, glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# CONFIGURAÇÃO
+# =========================
+ROOT   = "results_final_ko_100"   # raiz kb_*/kun_*/tss_*/
+TSS    = "tss_1000"               # troque para "tss_5000" se quiser comparar
+L      = 900.0                    # gene length (bp)
+M      = 20                       # até quantos transcritos considerar na primeira leva
+KUN_REF = 0.070711                # referência para 1C-like
+FIRST_WINDOW_S = 120.0            # janela de "primeira leva" (início S_n <= 120 s)
+TAU_CLEAR = 36.0                  # ~ L/vmax (isolamento mínimo entre vizinhos)
+MIN_VALIDS = 3                    # mínimo de RNAPs após filtros para computar mediana
+
+# =========================
+# FUNÇÕES AUXILIARES
+# =========================
+def parse(name,key):
+    m = re.search(rf"{key}_([\d\.Ee+-]+)", name)
+    return float(m.group(1)) if m else None
+
+def read_mp(path):
+    # mean_properties.txt
+    try:    df = pd.read_csv(path, sep="\t")
+    except: df = pd.read_csv(path, sep=r"\s+")
+    df = df.sort_values("transcripts_nb")
+    return df
+
+def reconstruct_En_series(df):
+    """
+    Reconstrói E_n (tempo de elongação do n-ésimo transcrito) a partir de mean_elong_time.
+    Retorna DataFrame com colunas: n, En, Tn (se houver 'time'), Sn (início ~ Tn-En).
+    """
+    need = {"transcripts_nb","mean_elong_time"}
+    if not need.issubset(df.columns): return None
+    d = df[["transcripts_nb","mean_elong_time"]].dropna().copy()
+    d = d.rename(columns={"transcripts_nb":"n","mean_elong_time":"Ebar"})
+    d = d.set_index("n").sort_index()
+
+    En_list = []
+    ns = sorted(d.index.values.astype(int))
+    for n in ns:
+        if n == 1:
+            En = float(d.loc[1, "Ebar"])
+        else:
+            if (n-1) not in d.index: break
+            En = n*float(d.loc[n,"Ebar"]) - (n-1)*float(d.loc[n-1,"Ebar"])
+        En_list.append((n, En))
+    out = pd.DataFrame(En_list, columns=["n","En"])
+
+    if "time" in df.columns:
+        tmap = df.set_index("transcripts_nb")["time"]
+        out["Tn"] = out["n"].map(tmap)   # tempo de término do n-ésimo (assumindo semântica padrão)
+        out["Sn"] = out["Tn"] - out["En"]
+    else:
+        out["Tn"] = np.nan
+        out["Sn"] = np.nan
+    return out
+
+def first_wave_speed_isolated(df, m=M,
+                              first_window=FIRST_WINDOW_S,
+                              tau_clear=TAU_CLEAR,
+                              min_valid=MIN_VALIDS):
+    """
+    Mediana de v_n = L / E_n para a "primeira leva isolada":
+    - pega até m transcritos
+    - exige S_n <= first_window (início cedo)
+    - exige isolamento temporal: min(Spacings com vizinhos) > tau_clear
+    Se faltar 'time' para construir S_n, usa só o corte por m (sem isolamento).
+    """
+    rec = reconstruct_En_series(df)
+    if rec is None or rec.empty: return np.nan, 0
+
+    # restringe aos primeiros m
+    rec = rec[rec["n"] <= m].copy()
+    rec["vn"] = L / rec["En"]
+
+    if "Sn" in rec.columns and rec["Sn"].notna().any():
+        rec = rec.dropna(subset=["Sn"]).copy()
+        # janela inicial
+        rec = rec[rec["Sn"] <= first_window].copy()
+        # isolamento: gaps com vizinhos
+        if not rec.empty:
+            rec = rec.sort_values("Sn")
+            S = rec["Sn"].values
+            # gap min to nearest neighbor
+            left_gap  = np.r_[np.inf, np.diff(S)]
+            right_gap = np.r_[np.diff(S), np.inf]
+            min_gap   = np.minimum(left_gap, right_gap)
+            rec["min_gap"] = min_gap
+            rec = rec[rec["min_gap"] > tau_clear].copy()
+
+    if rec.empty or rec["vn"].count() < min_valid:
+        # fallback: se não deu para filtrar, usa mediana simples dos primeiros m válidos
+        v = np.median((L / rec["En"]).values) if not rec.empty else np.nan
+        return float(v), int(rec.shape[0])
+    else:
+        return float(rec["vn"].median()), int(rec.shape[0])
+
+def little_N(df, tail=5):
+    taildf = df.tail(tail)
+    if {"prod_rate","mean_elong_time"}.issubset(taildf.columns):
+        return float((taildf["prod_rate"]*taildf["mean_elong_time"]).mean())
+    return np.nan
+
+def interp_logx_for_target(x1,y1,x2,y2,target=1.0):
+    # interpola log10(x) para y=target
+    if (y2 - y1) == 0: return x1
+    lx1, lx2 = np.log10(x1), np.log10(x2)
+    lx = lx1 + (target - y1)*(lx2 - lx1)/(y2 - y1)
+    return 10**lx
+
+# =========================
+# LOOP PRINCIPAL
+# =========================
+rows = []
+diagnostic = []   # N(kun) por kb, para o gráfico de diagnóstico
+
+for kb_dir in sorted(glob.glob(os.path.join(ROOT,"kb_*")), key=lambda p: parse(p,"kb")):
+    kb = parse(kb_dir,"kb")
+
+    # ------- 1C-like (kun fixo) -------
+    mp_ref = os.path.join(kb_dir, f"kun_{KUN_REF:g}", TSS, "mean_properties.txt")
+    vwave_ref = np.nan; n_used_ref = 0
+    if os.path.isfile(mp_ref):
+        df = read_mp(mp_ref)
+        vwave_ref, n_used_ref = first_wave_speed_isolated(df)
+
+    # ------- 4B-like: achar kun* com N≈1 (bracket + interpolação) -------
+    pts = []
+    for kun_dir in sorted(glob.glob(os.path.join(kb_dir,"kun_*")), key=lambda p: parse(p,"kun")):
+        kun = parse(kun_dir,"kun")
+        mp  = os.path.join(kun_dir, TSS, "mean_properties.txt")
+        if not os.path.isfile(mp): continue
+        df  = read_mp(mp)
+        N   = little_N(df, tail=5)
+        pts.append((kun, N))
+        diagnostic.append({"kb":kb, "kun":kun, "N":N})
+
+    kun_star     = np.nan
+    vwave_star   = np.nan
+    n_used_star  = 0
+    bracketed    = False
+
+    if len(pts) >= 2:
+        pts = sorted(pts, key=lambda t: t[0])
+        # procura bracket (N cruzando 1)
+        for (k1,N1),(k2,N2) in zip(pts[:-1], pts[1:]):
+            if (N1-1.0)*(N2-1.0) <= 0:
+                kun_star = interp_logx_for_target(k1,N1,k2,N2,target=1.0)
+                bracketed = True
+                break
+
+        # escolhe o arquivo 'mais próximo' para medir v_wave (ou rode a sim no kun_star)
+        k_near = None
+        if bracketed:
+            k_near = min(pts, key=lambda t: abs(np.log(t[0]) - np.log(kun_star)))[0]
+        else:
+            # sem bracket: pega ponto mais próximo de 1 só para não ficar vazio (mas marca!)
+            k_near = min(pts, key=lambda t: abs(t[1]-1.0))[0]
+        mp_near = os.path.join(kb_dir, f"kun_{k_near:g}", TSS, "mean_properties.txt")
+        if os.path.isfile(mp_near):
+            df_near = read_mp(mp_near)
+            vwave_star, n_used_star = first_wave_speed_isolated(df_near)
+
+    rows.append({
+        "kb": kb,
+        "vwave_kunREF": vwave_ref,
+        "n_used_ref": n_used_ref,
+        "kun_star_interp": kun_star,
+        "bracketed": bracketed,
+        "vwave_kun_star": vwave_star,
+        "n_used_star": n_used_star
+    })
+
+dat = pd.DataFrame(rows).sort_values("kb")
+diag = pd.DataFrame(diagnostic)
+
+# =========================
+# PLOTS
+# =========================
+plt.figure(figsize=(7,4))
+plt.bar(dat["kb"], dat["vwave_kunREF"], width=dat["kb"]*0.2)
+plt.xscale("log"); plt.ylim(bottom=0)
+plt.xticks(dat["kb"], [f"{v:.3g}" for v in dat["kb"]], rotation=45)
+plt.xlabel("k_b (1/s)"); plt.ylabel("v_wave isolada (bp/s)")
+plt.title(f"1C-like — v_wave dos {M} primeiros (kun={KUN_REF:g}, filtros: S<= {FIRST_WINDOW_S}s, gap>{TAU_CLEAR}s)")
+plt.tight_layout(); plt.show()
+
+plt.figure(figsize=(7,4))
+# barras: v_wave @ kun* (se bracketed=True); hachura quando não houve bracket
+colors = ["C0" if b else "lightgray" for b in dat["bracketed"]]
+plt.bar(dat["kb"], dat["vwave_kun_star"], width=dat["kb"]*0.2, color=colors, label="v_wave @ kun* (N≈1)")
+plt.plot(dat["kb"], dat["vwave_kunREF"], "o--", label=f"@ kun={KUN_REF:g}")
+plt.xscale("log"); plt.ylim(bottom=0)
+plt.xticks(dat["kb"], [f"{v:.3g}" for v in dat["kb"]], rotation=45)
+plt.xlabel("k_b (1/s)"); plt.ylabel("v_wave isolada (bp/s)")
+plt.title("4B-like — v_wave com N≈1 por gene (kun*)\n(cinza: não houve bracket; precisa simular kun adicional)")
+plt.legend(); plt.tight_layout(); plt.show()
+
+# Diagnóstico: N(kun) por kb
+plt.figure(figsize=(7,5))
+for kb, grp in diag.groupby("kb"):
+    g = grp.sort_values("kun")
+    plt.plot(g["kun"], g["N"], "o-", label=f"kb={kb:g}")
+plt.axhline(1.0, color="k", ls="--", lw=1)
+plt.xscale("log"); plt.ylim(bottom=0)
+plt.xlabel("k_unbinding (1/s)"); plt.ylabel("N_elon (Little)")
+plt.title(f"Diagnóstico — N_elon vs k_unbinding  ({TSS})")
+plt.legend(ncol=2, fontsize=8)
+plt.tight_layout(); plt.show()
+
+print(dat)
+

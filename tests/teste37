@@ -1,0 +1,54 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Parâmetros do modelo ---
+L = 900.0       # comprimento do gene (bp)
+Ld = 320.0      # downstream (bp)
+v_max = 25.0    # bp/s
+G = 18.5        # pN·nm
+A_par = 300.0   # pN·nm
+phi = 1/10.5
+#alpha = 0.001
+#kappa = 0.1
+
+# TopoI (I) e gyrase (G)
+lambda_ns_I_def = 1e-4   # ns TopoI (/bp/s)
+Lambda_s_I_def = 1.0     # specific TopoI (/s)
+lambda_ns_G_def = 1e-4   # ns Gyrase (/bp/s)
+Lambda_s_G_def = 2.0     # specific Gyrase (/s)
+
+D_down_def = L + Ld      # gene + downstream
+
+# --- Curva de referência experimental ---
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+])
+
+# --- Cálculo do modelo variando apenas tss ---
+T_model = []
+for tss in tss_array:
+    D_up = tss
+    lam_I = lambda_ns_I_def * D_up + Lambda_s_I_def
+    lam_G = lambda_ns_G_def * D_down_def + Lambda_s_G_def
+    lam0 = lam_I + lam_G
+
+    x = (A_par * v_max) / (G * lam0 * (D_up + D_down_def))
+    v_eff = (v_max / (1 + x)) #* np.exp(-kappa * x)
+    T_model.append(L / v_eff)
+T_model = np.array(T_model)
+
+# --- Plotagem ---
+plt.figure(figsize=(8,5))
+plt.plot(tss_array, T_real_array, '--o', label='Simulação')
+plt.plot(tss_array, T_model, '-', label='Modelo teórico')
+plt.xscale('log')
+plt.xlabel("tss (bp)")
+plt.ylabel("Tempo de elongação T (s)")
+plt.title("Comparação: Dados reais vs. Modelo teórico")
+plt.grid(True, which='both', ls=':')
+plt.legend()
+plt.tight_layout()
+plt.show()

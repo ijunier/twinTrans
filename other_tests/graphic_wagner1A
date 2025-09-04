@@ -1,0 +1,56 @@
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Configurações
+root_dir          = 'results_final_ko_100'    # pasta com subdirs kb_*
+tss_choice        = 'tss_100'                 # ou 'tss_1000', 'tss_5000'
+kun_choice        = 'kun_0.001'               # quase sem unbinding
+records = []
+
+for kb_dir in sorted(os.listdir(root_dir)):
+    if not kb_dir.startswith('kb_'): continue
+    kb_val   = float(kb_dir.split('_')[1])
+    mean_fp  = os.path.join(root_dir, kb_dir, kun_choice, tss_choice, 'mean_properties.txt')
+    if not os.path.isfile(mean_fp):
+        print(f"Ignorando {mean_fp}")
+        continue
+
+    # --- Lê todas as linhas numéricas ---
+    data_lines = []
+    with open(mean_fp) as f:
+        for L in f:
+            L = L.strip()
+            if not L or L.startswith('#'): continue
+            parts = L.split()
+            try:
+                floats = [float(x) for x in parts]
+            except ValueError:
+                continue
+            data_lines.append(floats)
+
+    if not data_lines:
+        print(f"Nenhum dado em {mean_fp}")
+        continue
+
+    # Usa a última linha (steady-state multi-RNAP)
+    last = data_lines[-1]
+    prod_rate = last[2]       # coluna 0=transcripts_nb, 1=time, 2=prod_rate
+
+    records.append({'kb': kb_val, 'prod_rate': prod_rate})
+
+# Monta DataFrame e plota
+df = pd.DataFrame(records).sort_values('kb')
+
+x = df['kb'].values
+y = df['prod_rate'].values
+
+plt.figure(figsize=(4,3))
+plt.bar(x, y, width=x*0.2)
+plt.xscale('log')
+plt.xticks(x, [f"{v:.3g}" for v in x], rotation=45)
+plt.xlabel('promoter_kb (s⁻¹; proxy para [IPTG])')
+plt.ylabel('prod_rate (transcritos/s)')
+plt.title('Jacobs & Wagner Fig. 1A (produção steady-state)')
+plt.tight_layout()
+plt.show()

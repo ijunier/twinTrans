@@ -1,0 +1,209 @@
+#!/usr/bin/env python3
+import os, re, glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =======================
+# PARÂMETROS DO EXPERIMENTO
+# =======================
+ROOT       = "results_final_kb_0.453"   # raiz
+KO_TARGET  = 0.238731                   # escolher ko_* mais próximo
+KB         = 0.453                      # s^-1
+KE         = 100.0                      # s^-1
+L_GENE     = 900.0                      # bp
+L_CLEAR    = 30.0                       # bp
+LAMBDA_S   = 1.0                        # s^-1 (Topo I específica)
+BETA_LINK  = 0.0                        # 0 => sem "atenuação por unbinding"
+TSS_LIST   = [100, 1000, 5000]
+
+# P_OC(d) medidos (A=300)
+tss_vals = [100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000]
+POC_vals = [0.746,0.767,0.780,0.796,0.843,0.943,0.982,0.993,0.998,0.998,1.000,0.999,1.000,1.000,1.000,1.000,1.000]
+P_OC_map = dict(zip(tss_vals, POC_vals))
+
+# =======================
+# FUNÇÕES AUXILIARES
+# =======================
+def parse_float(s, key):
+    m = re.search(rf"{re.escape(key)}_([\d\.Ee+-]+)", s)
+    return float(m.group(1)) if m else None
+
+def safe_read(mp):
+    try:    return pd.read_csv(mp, sep="\t")
+    except: return pd.read_csv(mp, sep=r"\s+")
+
+def v_from_mp(mp, L=L_GENE):
+    if not os.path.isfile(mp): return np.nan
+    df = safe_read(mp)
+    if "mean_elong_time" not in df.columns: return np.nan
+    t = float(df["mean_elong_time"].dropna().iloc[-1])
+    return L/t if t>0 else np.nan
+
+def knee_maxslope(k, v):
+    """k onde |dv/dlog10k| é máximo (diferença central)."""
+    k = np.asarray(k); v = np.asarray(v)
+    mask = np.isfinite(k) & np.isfinite(v)
+    k, v = k[mask], v[mask]
+    idx = np.argsort(k); k, v = k[idx], v[idx]
+    if len(k) < 3: return np.nan, np.nan
+    x = np.log10(k)
+    dv = np.gradient(v, x)           # dv/dlogk
+    i  = int(np.nanargmax(np.abs(dv)))
+    return float(k[i]), float(v[i])
+
+def knee_inflection(k, v):
+    """Ponto de inflexão: zero de d2v/d(log10k)^2 por interpolação do sinal."""
+    k = np.asarray(k); v = np.asarray(v)
+    mask = np.isfinite(k) & np.isfinite(v)
+    k, v = k[mask], v[mask]
+    idx = np.argsort(k); k, v = k[idx], v[idx]
+    if len(k) < 4: return np.nan, np.nan
+    x   = np.log10(k)
+    dv  = np.gradient(v, x)
+    d2v = np.gradient(dv, x)
+    sgn = np.sign(d2v)
+    # procurar primeira troca de sinal na região onde |dv| é grande
+    # estratégia: filtrar pares com sgn[i]*sgn[i+1] < 0 e escolher o de maior |dv| médio
+    cand = []
+    for i in range(len(x)-1):
+        if np.isfinite(d2v[i]) and np.isfinite(d2v[i+1]) and sgn[i]*sgn[i+1] < 0:
+            score = max(abs(dv[i]), abs(dv[i+1]))  # favorece região de maior inclinação
+            # interpolação linear de d2v entre x[i] e x[i+1]
+            xi = x[i] - d2v[i]*(x[i+1]-x[i])/(d2v[i+1]-d2v[i])
+            cand.append((score, xi))
+    if not cand:
+        # fallback: mínimo |d2v| global
+        j = int(np.nanargmin(np.abs(d2v)))
+        return float(k[j]), float(v[j])
+    xi = sorted(cand, key=lambda z: -z[0])[0][1]
+    vi = float(np.interp(xi, x, v))
+    ki = float(10**xi)
+    return ki, vi
+
+def P_open(d, k, POC_meas, lam=LAMBDA_S, beta=BETA_LINK):
+    return POC_meas * (lam/(lam+k))**beta
+
+def kc_theoretical(d, k_emp, v_local, kb=KB, ko=KO_TARGET, ke=KE, Lc=L_CLEAR):
+    """k_c^th = 1/Δ usando v_local no joelho empírico."""
+    Popen   = P_open(d, k_emp, P_OC_map[d])
+    tau_b   = 1.0/(kb*Popen)
+    tau_oc  = 1.0/(ko*Popen)
+    tau_esc = 1.0/ke
+    tau_clr = Lc/max(v_local, 1e-9)
+    Delta   = tau_b + tau_oc + tau_esc + tau_clr
+    return 1.0/Delta, Delta, Popen, (tau_b, tau_oc, tau_esc, tau_clr)
+
+# =======================
+# CARREGAR DADOS v(k)
+# =======================
+ko_dirs = sorted(glob.glob(os.path.join(ROOT, "ko_*")), key=lambda p: parse_float(p, "ko"))
+if not ko_dirs: raise RuntimeError("Nenhuma pasta ko_* encontrada.")
+ko_vals = np.array([parse_float(p, "ko") for p in ko_dirs])
+ko_dir  = ko_dirs[int(np.nanargmin(abs(ko_vals-KO_TARGET)))]
+
+kun_dirs = sorted(glob.glob(os.path.join(ko_dir, "kun_*")), key=lambda p: parse_float(p, "kun"))
+k_grid   = [parse_float(p, "kun") for p in kun_dirs]
+
+v_by_tss = {tss: [] for tss in TSS_LIST}
+for kd in kun_dirs:
+    k = parse_float(kd, "kun")
+    for tss in TSS_LIST:
+        mp = os.path.join(kd, f"tss_{tss}", "mean_properties.txt")
+        v_by_tss[tss].append(v_from_mp(mp))
+
+# =======================
+# CÁLCULO DOS JOELHOS
+# =======================
+summary = []
+res_emp_inf = {}
+res_emp_slope = {}
+res_th_inf = {}
+res_th_slope = {}
+
+for tss in TSS_LIST:
+    ks = np.array(k_grid, float)
+    vs = np.array(v_by_tss[tss], float)
+
+    # ordenar
+    ok  = np.isfinite(ks) & np.isfinite(vs)
+    ks, vs = ks[ok], vs[ok]
+    idx = np.argsort(ks); ks, vs = ks[idx], vs[idx]
+
+    k_slope, v_slope = knee_maxslope(ks, vs)
+    k_infl , v_infl  = knee_inflection(ks, vs)
+
+    # teórico a partir de cada joelho local (usa v_local correspondente)
+    k_th_slope, Delta_s, Popen_s, taus_s = kc_theoretical(tss, k_slope, v_slope)
+    k_th_infl , Delta_i, Popen_i, taus_i = kc_theoretical(tss, k_infl , v_infl )
+
+    res_emp_slope[tss] = k_slope
+    res_emp_inf[tss]   = k_infl
+    res_th_slope[tss]  = k_th_slope
+    res_th_inf[tss]    = k_th_infl
+
+    summary.append({
+        "TSS": tss,
+        "kc_emp_max|dv/dlogk|": k_slope,
+        "v_eff_at_maxslope": v_slope,
+        "kc_th_from_maxslope": k_th_slope,
+        "kc_emp_inflection": k_infl,
+        "v_eff_at_inflection": v_infl,
+        "kc_th_from_inflection": k_th_infl,
+        "Delta_at_inflection": Delta_i,
+        "P_open_at_inflection": Popen_i
+    })
+
+summary = pd.DataFrame(summary).set_index("TSS")
+print("\n=== RESUMO (empírico vs teórico) ===")
+print(summary.to_string(float_format=lambda x: f"{x:.6g}"))
+
+# =======================
+# PLOT
+# =======================
+plt.figure(figsize=(12,6))
+colors = {100:"#1f77b4", 1000:"#ff7f0e", 5000:"#2ca02c"}
+
+for tss in TSS_LIST:
+    ks = np.array(k_grid, float)
+    vs = np.array(v_by_tss[tss], float)
+    ok  = np.isfinite(ks) & np.isfinite(vs)
+    ks, vs = ks[ok], vs[ok]
+    idx = np.argsort(ks); ks, vs = ks[idx], vs[idx]
+    plt.plot(ks, vs, "o-", color=colors[tss], label=f"TSS {tss} bp")
+
+for tss, col in colors.items():
+    # empírico: inflexão (:) e máx slope (-.)
+    if np.isfinite(res_emp_inf.get(tss, np.nan)):
+        plt.axvline(res_emp_inf[tss], color=col, ls=":", lw=2,
+                    label=f"k$_c$ emp (inflex, {tss}) ~ {res_emp_inf[tss]:.6g}")
+    if np.isfinite(res_emp_slope.get(tss, np.nan)):
+        plt.axvline(res_emp_slope[tss], color=col, ls="-.", lw=1.8,
+                    label=f"k$_c$ emp (máx|dv/dlogk|, {tss}) ~ {res_emp_slope[tss]:.6g}")
+    # teórico (--) a partir do v_local no joelho de inflexão
+    if np.isfinite(res_th_inf.get(tss, np.nan)):
+        plt.axvline(res_th_inf[tss], color=col, ls="--", lw=2.0,
+                    label=f"k$_c$ teórico (v_local@inflex, {tss}) ~ {res_th_inf[tss]:.6g}")
+
+plt.xscale("log")
+plt.xlabel(r"$k_{\mathrm{unbinding}}\ \mathrm{(s^{-1})}$")
+plt.ylabel("Elongation velocity v (bp/s)")
+title = (
+    r"v $\times$ k$_{\mathrm{un}}$ (kb=0.453, ko$\approx$0.238731)"
+    r" — joelhos: inflexão (:) / máx|dv/dlogk| (-.) / teórico (--)" "\n"
+    r"$P_{\mathrm{open}}(d,k)=P_{\mathrm{OC}}^{\mathrm{medido}}(d)\,"
+    r"\left(\frac{\Lambda_s}{\Lambda_s+k}\right)^{\beta}$"
+    rf", $\beta={BETA_LINK:.2f}$"
+)
+plt.title(title)
+plt.grid(True, which="both", ls=":", alpha=0.5)
+plt.legend(fontsize=9)
+plt.tight_layout(rect=[0,0,1,0.90])
+plt.show()
+
+
+
+
+
+
+

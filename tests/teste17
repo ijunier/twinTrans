@@ -1,0 +1,89 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Dados de entrada: resultados da simulação
+data = {
+    'param': ['kb', 'kb', 'kb',
+              'ke', 'ke',
+              'ko', 'ko',
+              'nsgyrase', 'nstopo1',
+              'sgyrase', 'stopo1',
+              'tss', 'tss'],
+    'value': [0.01, 0.453, 100,
+              0.01, 10,
+              0.01, 100,
+              1e-6, 1e-6,
+              0.02, 0.01,
+              100, 5000],
+    'bind_time_sim': [112.563088, 8.727905, 6.564215,
+                      108.332144, 8.770596,
+                      308.891580, 5.384446,
+                      9.241575, 8.935219,
+                      73.598159, 34.281756,
+                      10.472259, 7.924903],
+    'ocf_time_sim': [9.529760, 3.338121, 3.370990,
+                     3.315372, 3.333799,
+                     303.634149, 0.056551,
+                     3.978491, 3.247735,
+                     25.633742, 3.085667,
+                     4.242410, 3.102060],
+    'escape_time_sim': [0.040016, 0.040012, 0.040008,
+                        99.951724, 0.094567,
+                        0.040028, 0.040008,
+                        0.040020, 0.040016,
+                        0.040008, 0.040016,
+                        0.040004, 0.040008],
+}
+
+df = pd.DataFrame(data)
+
+# Parâmetros default
+defaults = {
+    'kb': 0.453, 'ko': 0.32, 'ke': 100.0,
+    'tss': 1000.0, 'A': 300.0, 'phi': 1/10.5,
+    'v_max': 25.0, 'G': 18.5,
+    'lambda_ns': 1e-4, 'Lambda_s': 1.0,
+    'lambda_ns_g': 1e-4, 'Lambda_s_g': 2.0,
+    'l_excl': 30.0  # comprimento excluído RNAP
+}
+
+# Função para calcular v_eff
+def calc_v_eff(D, A, defaults):
+    lam0 = (defaults['lambda_ns'] * D + defaults['Lambda_s']) \
+         + 2*(defaults['lambda_ns_g'] * D + defaults['Lambda_s_g'])
+    return defaults['v_max'] / (1 + (A * defaults['phi'] * defaults['v_max'])/(defaults['G'] * lam0))
+
+# Supondo Pσ = 1 (sem correção por superenrolamento)
+df['kb_eff'] = df['value'].where(df['param']=='kb', defaults['kb'])
+df['ko_eff'] = df['value'].where(df['param']=='ko', defaults['ko'])
+df['ke_eff'] = df['value'].where(df['param']=='ke', defaults['ke'])
+df['tss_eff'] = df['value'].where(df['param']=='tss', defaults['tss'])
+df['A_eff']   = defaults['A']
+
+# Cálculos teóricos
+df['escape_time_th'] = 1/df['ke_eff']
+df['ocf_time_th']    = 1/df['ko_eff']  # * Pσ, com Pσ=1
+df['init_time_th']   = df['ocf_time_th'] + df['escape_time_th']
+df['v_eff']          = df.apply(lambda r: calc_v_eff(r['tss_eff'], r['A_eff'], defaults), axis=1)
+df['bind_time_th']   = 1/df['kb_eff'] + df['init_time_th'] + defaults['l_excl']/df['v_eff']
+
+# Plotagem
+times = [
+    ('bind_time',   'Tempo de Binding (s)'),
+    ('ocf_time',    'Tempo de OC-formation (s)'),
+    ('escape_time', 'Tempo de Escape (s)'),
+    ('init_time',   'Total Init (s)')
+]
+
+for key, label in times:
+    plt.figure(figsize=(6,4))
+    plt.plot(df['param']+'='+df['value'].astype(str), df[f'{key}_sim'], 'o-', label='Simulação')
+    plt.plot(df['param']+'='+df['value'].astype(str), df[f'{key}_th'], 's--', label='Teoria')
+    plt.xticks(rotation=45, ha='right')
+    plt.ylabel(label)
+    plt.xlabel('Parâmetro = valor')
+    plt.title(label + ' – Sim vs Teoria')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()

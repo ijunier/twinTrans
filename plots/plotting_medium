@@ -16,7 +16,7 @@ for d in distances:
     if os.path.isfile(fn):
         df = pd.read_csv(fn, sep='\t')
         row = df[df['transcripts_nb'] == target_transcripts]
-        rate = float(row['prod_rate']) if not row.empty else np.nan
+        rate = float(row['mean_elong_time']) if not row.empty else np.nan
     else:
         rate = np.nan
     rates[d] = rate

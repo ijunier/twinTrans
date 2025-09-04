@@ -1,0 +1,105 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.special import erfc
+
+
+# --- Model parameters (from your simulation) ---
+L = 520          # gene length (bp)
+v_max = 25       # max RNAP speed (bp/s)
+G = 18.5         # stall torque (pN·nm)
+A = 300          # DNA stiffness (pN·nm)
+phi = 1/10.5     # supercoil injection per bp
+
+lambda_ns = 1e-4     # TopoI non-specific (/Lk-unit/s)
+Lambda_s  = 1        # TopoI specific (/s)
+lambda_ns_g = 1e-4   # gyrase non-specific (/Lk-unit/s)
+Lambda_s_g  = 2      # gyrase specific (/s)
+
+# Thresholds from param_var:
+sigma_active = -0.05         # topoI acts if sigma <= sigma_active
+sigma_stall  = -G / A        # gyrase acts if sigma >= sigma_stall
+
+# Noise coefficient (to calibrate)
+c_noise = 5000000000000000
+
+def T_elong_stochastic(D):
+    """
+    Self-consistent solution for mean sigma and resulting T_elong
+    using a stochastic threshold model.
+    """
+    # non-specific removal rate
+    lambda_ns_tot = (lambda_ns + lambda_ns_g) * D
+
+    # noise strength
+    def var_sigma(D):
+        return (c_noise / D) / (lambda_ns_tot + (A*phi*v_max)/G)
+
+    # define self-consistent function f(sigma) = phi*v_eff(sigma)/lambda0(sigma) - sigma
+    def f_sigma(s):
+        # compute variance around s
+        v = var_sigma(D)
+        # probabilities
+        pI = 0.5 * erfc((s - sigma_active) / np.sqrt(2*v))
+        pg = 0.5 * erfc((sigma_stall - s) / np.sqrt(2*v))
+        # total removal
+        lambda0 = lambda_ns_tot + Lambda_s * pI + Lambda_s_g * pg
+        # effective velocity
+        v_eff = v_max * (1 - A * s / G)
+        return phi * v_eff / lambda0 - s
+
+    # bracket for root finding
+    a, b = -0.5, 0.1
+    fa, fb = f_sigma(a), f_sigma(b)
+    if fa * fb > 0:
+        raise ValueError("Bracket does not contain root")
+
+    # bisection
+    for _ in range(50):
+        m = 0.5*(a+b)
+        fm = f_sigma(m)
+        if fa*fm <= 0:
+            b, fb = m, fm
+        else:
+            a, fa = m, fm
+    sigma_bar = 0.5*(a+b)
+
+    # compute final T_elong
+    v_eff = v_max * (1 - A * sigma_bar / G)
+    return L / v_eff
+
+# Real simulation data
+real_data = {
+    100: 108.995808, 200: 105.930240, 250: 103.515472, 300: 102.044444,
+    500: 94.464468, 1000: 82.989236, 2000: 75.767280, 3205: 70.988056,
+    4000: 68.822540, 5000: 67.034956, 8000: 62.073332, 10000: 59.406952,
+    12000: 57.413964, 14000: 55.752504, 16000: 54.484696, 18000: 53.625760,
+    20000: 52.447332
+}
+
+# Compute theoretical predictions
+results = []
+for D, real_t in real_data.items():
+    try:
+        theo_t = T_elong_stochastic(D)
+    except ValueError:
+        theo_t = np.nan
+    results.append({
+        'Distance (bp)': D,
+        'Real T_elong (s)': real_t,
+        'Model T_elong (s)': theo_t
+    })
+
+df = pd.DataFrame(results).sort_values('Distance (bp)')
+
+# Plot comparison
+plt.figure(figsize=(8,5))
+plt.plot(df['Distance (bp)'], df['Real T_elong (s)'], 'o-', label='Real')
+plt.plot(df['Distance (bp)'], df['Model T_elong (s)'], 's--', label='Model')
+plt.xscale('log')
+plt.xlabel('Upstream Distance D (bp)')
+plt.ylabel('Mean Elongation Time (s)')
+plt.title('Real vs. Stochastic-Threshold Model')
+plt.legend()
+plt.grid(True, which='both', ls='--', lw=0.5)
+plt.show()

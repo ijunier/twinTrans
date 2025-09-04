@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+import os, math, subprocess
+from pathlib import Path
+from joblib import Parallel, delayed
+import pandas as pd
+
+# ========= CONFIG =========
+OLD_ROOT = Path("results_final_ko_100")          # NÃO alterar
+NEW_ROOT = Path("results_ko100_topup_light")     # NOVA pasta
+TWIN     = Path("bin") / "twin.py"
+
+# Parâmetros fixos do modelo (iguais aos seus)
+ko_value = 100
+so_value = -0.04
+ke_value = 100
+Ld_value = 520
+
+# Execução
+n_jobs      = 48      # usa 48 cores do cluster
+Nt_quick    = 3000    # “tiro” rápido para bracketing
+Nt_final    = 10000   # medição final em k*
+tss_list    = [1000]  # foque no Wagner 1C/4B (adicione 100 e 5000 se quiser)
+
+# k_b que ainda não tinham bracketing na sua tabela
+kb_targets = [
+  1.0e-3, 2.0944e-2, 3.8483e-2, 7.0711e-2, 1.29926e-1,
+  2.38731e-1, 4.38653e-1, 8.05997e-1, 1.480968, 2.721184, 5.0
+]
+
+# Candidatos compactos de k_un para bracketing
+CANDS_DOWN = [3e-4, 1e-4, 3e-5]     # quando N_min > 1 (precisa descer k_un)
+CANDS_UP   = [0.3, 1.0, 3.0]        # quando N_max < 1 (precisa subir k_un)
+MAX_NEW_PER_KB = 4                  # no máx 4 “tiros” por k_b na passada 1
+
+def fmt(x: float) -> str:
+    return f"{x:.6g}"
+
+def read_N(mp_path: Path) -> float | None:
+    if not mp_path.exists(): return None
+    try:
+        df = pd.read_csv(mp_path, sep="\t")
+    except:
+        try: df = pd.read_csv(mp_path, sep=r"\s+")
+        except: return None
+    req = {"prod_rate","mean_elong_time"}
+    if not req.issubset(df.columns): return None
+    tail = df.tail(5)[["prod_rate","mean_elong_time"]].dropna()
+    if tail.empty: return None
+    return float((tail["prod_rate"]*tail["mean_elong_time"]).mean())
+
+def N_from_roots(kb: float, kun: float, tss: int) -> float | None:
+    for root in (OLD_ROOT, NEW_ROOT):
+        mp = root / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
+        N = read_N(mp)
+        if N is not None: return N
+    return None
+
+def run_sim(kb: float, kun: float, tss: int, Nt: int) -> bool:
+    outdir = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}"
+    outdir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "python3", str(TWIN), str(outdir),
+        "-f",
+        "-ko", str(ko_value), "-so", str(so_value),
+        "-ke", str(ke_value), "-Ld", str(Ld_value),
+        "-kb", fmt(kb), "-ku", fmt(kun), "-tss", str(tss),
+        "-Nt", str(Nt),
+    ]
+    p = subprocess.run(cmd, capture_output=True, text=True)
+    ok = (p.returncode == 0)
+    tag = f"kb={fmt(kb):>8} kun={fmt(kun):>8} tss={tss:<4} Nt={Nt}"
+    print(f"[{'OK' if ok else 'ERR'}] {tag}")
+    if not ok: print(p.stderr)
+    return ok
+
+def collect_pairs(kb: float, tss: int):
+    pairs = []
+    for root in (OLD_ROOT, NEW_ROOT):
+        kb_dir = root / f"kb_{fmt(kb)}"
+        if not kb_dir.exists(): continue
+        for kd in kb_dir.glob("kun_*"):
+            try: kun = float(kd.name.split("_")[1])
+            except: continue
+            N = N_from_roots(kb, kun, tss)
+            if N is not None:
+                pairs.append((kun, N))
+    # únicos, ordenados por k
+    seen, out = set(), []
+    for k,N in sorted(pairs):
+        key = (round(k, 12), round(N, 6))
+        if key in seen: continue
+        seen.add(key); out.append((k,N))
+    return out
+
+def bracket_info(pairs):
+    below = [(k,N) for k,N in pairs if N < 1.0]
+    above = [(k,N) for k,N in pairs if N > 1.0]
+    if below and above:
+        k1,N1 = max(below, key=lambda p: p[1])  # maior N<1
+        k2,N2 = min(above, key=lambda p: p[1])  # menor N>1
+        return True, (k1,N1,k2,N2)
+    return False, None
+
+def log_interp_kstar(k1,N1,k2,N2):
+    x1, x2 = math.log10(k1), math.log10(k2)
+    x = x1 + (1.0 - N1) * (x2 - x1) / (N2 - N1 + 1e-12)
+    return 10**x
+
+def plan_new_kuns(kb: float, tss: int, pairs):
+    if not pairs:
+        return [1e-3, 1e-2, 0.1, 1.0][:MAX_NEW_PER_KB]
+    Nvals = [N for _,N in pairs]
+    k_existing = {round(k,12) for k,_ in pairs}
+    if min(Nvals) > 1.0:           # tudo > 1 → descer k_un
+        cand = [k for k in CANDS_DOWN if round(k,12) not in k_existing]
+        return cand[:MAX_NEW_PER_KB]
+    if max(Nvals) < 1.0:           # tudo < 1 → subir k_un
+        cand = [k for k in CANDS_UP   if round(k,12) not in k_existing]
+        return cand[:MAX_NEW_PER_KB]
+    return []                      # já tem dos dois lados (só não bracketou “apertado”)
+
+def schedule_pass1_jobs(kb_targets, tss_list):
+    jobs = []
+    for kb in kb_targets:
+        for tss in tss_list:
+            pairs = collect_pairs(kb, tss)
+            have, info = bracket_info(pairs)
+            if have:
+                # já bracketou: nada na pass1
+                continue
+            for kun in plan_new_kuns(kb, tss, pairs):
+                # evita rerun se já existir no NEW_ROOT
+                mp = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kun)}" / f"tss_{tss}" / "mean_properties.txt"
+                if not mp.exists():
+                    jobs.append((kb, kun, tss, Nt_quick))
+    return jobs
+
+def schedule_pass2_jobs(kb_targets, tss_list):
+    """Depois da pass1, interpola k* e agenda 1 corrida final por kb,tss."""
+    jobs = []
+    for kb in kb_targets:
+        for tss in tss_list:
+            pairs = collect_pairs(kb, tss)
+            have, info = bracket_info(pairs)
+            if not have:
+                print(f"[WARN] kb={fmt(kb)} tss={tss}: ainda sem bracketing (len={len(pairs)}).")
+                continue
+            k1,N1,k2,N2 = info
+            kstar = log_interp_kstar(k1,N1,k2,N2)
+            mp = NEW_ROOT / f"kb_{fmt(kb)}" / f"kun_{fmt(kstar)}" / f"tss_{tss}" / "mean_properties.txt"
+            if not mp.exists():
+                jobs.append((kb, kstar, tss, Nt_final))
+            print(f"[INFO] kb={fmt(kb)} tss={tss} → k*≈{kstar:.6g} (de {k1:.6g}→{k2:.6g})")
+    return jobs
+
+if __name__ == "__main__":
+    NEW_ROOT.mkdir(parents=True, exist_ok=True)
+
+    # PASSADA 1: poucos tiros rápidos para obter bracketing
+    jobs1 = schedule_pass1_jobs(kb_targets, tss_list)
+    if jobs1:
+        print(f"\n[PASS1] Rodando {len(jobs1)} tiros rápidos (Nt={Nt_quick}) com n_jobs={n_jobs}...\n")
+        Parallel(n_jobs=n_jobs)(
+            delayed(run_sim)(kb,kun,tss,Nt) for (kb,kun,tss,Nt) in jobs1
+        )
+    else:
+        print("\n[PASS1] Nada a rodar (já havia bracketing em tudo).\n")
+
+    # PASSADA 2: 1 corrida final em k* por kb,tss
+    jobs2 = schedule_pass2_jobs(kb_targets, tss_list)
+    if jobs2:
+        print(f"\n[PASS2] Rodando {len(jobs2)} corridas finais (Nt={Nt_final}) com n_jobs={n_jobs}...\n")
+        Parallel(n_jobs=n_jobs)(
+            delayed(run_sim)(kb,kun,tss,Nt) for (kb,kun,tss,Nt) in jobs2
+        )
+    else:
+        print("\n[PASS2] Nada a rodar.\n")
+
+    print("\n[OK] Top-up finalizado. Resultados em:", NEW_ROOT)

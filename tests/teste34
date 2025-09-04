@@ -1,0 +1,98 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from math import ceil
+
+# Dados de simulação (8 pontos com mean elong times conhecidos)
+data = {
+    'tss':             [100,200,250,300,500,1000,2000,3205,4000,5000,8000,10000,12000,14000,16000,18000,20000],
+    'prod_rate':       [0.095777,0.097639,0.100193,0.100654,0.105839,
+                         0.114454,0.119056,0.123227,0.124505,0.126735,
+                         0.129467,0.130707,0.133142,0.135048,0.135754,
+                         0.135853,0.137714],
+    'mean_elong_sim':  [
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+]  # preencha com seu mean_elong_time
+}
+df = pd.DataFrame(data)
+
+# Parâmetros físicos
+L, Ld, excluded = 900.0, 520.0, 30.0  # bp
+dx, v_max       = 1.0, 25.0          # bp, bp/s
+tau0            = dx / v_max         # s per step
+A, phi, G       = 300.0, 1/10.5, 18.5
+sigma_stall     = G / (A * phi)
+lambda_ns_I, Lambda_s_I = 1e-4, 1.0
+lambda_ns_G, Lambda_s_G = 1e-4, 2.0
+b = 1.0 / tau0
+
+# Clearance time per transcript
+tau_clear = 2.0  # seconds
+
+def birth_death_delay(D_up, D_down):
+    """Delay médio de stall pelo primeiro passo de nascimento-morte com saltos."""
+    n_star = int(ceil(sigma_stall / phi))
+    A_mat = np.zeros((n_star, n_star))
+    c = np.zeros(n_star)
+    lam_I = lambda_ns_I * D_up + Lambda_s_I
+    lam_G = lambda_ns_G * D_down + Lambda_s_G
+    lam0 = lam_I + lam_G
+    for n in range(n_star):
+        denom = b + lam0
+        c[n] = 1.0 / denom
+        # avanço n->n+1
+        if n + 1 < n_star:
+            A_mat[n, n+1] = -b / denom
+        # TopoI n->n-1
+        pi = lam_I / denom
+        A_mat[n, n-1 if n>0 else n] += -pi
+        # Gyrase n->n-2
+        pg = lam_G / denom
+        to = n-2 if n>1 else 0
+        A_mat[n, to] += -pg
+        # identidade
+        A_mat[n, n] += 1.0
+    T = np.linalg.solve(A_mat, c)
+    return T[0]
+
+def compute_T_elong(tss, prod_rate, mean_elong_sim):
+    # 1) velocidade efetiva simulada
+    v_eff_sim = L / mean_elong_sim
+    # 2) espaçamento médio entre RNAPs
+    ell_sep = v_eff_sim / prod_rate
+    # 3) tempo de avanço contínuo
+    T_forward = L / v_eff_sim
+    # 4) soma de stalls passo-a-passo, usando min(up,down)
+    T_stall = 0.0
+    xs = np.arange(0, L, dx)
+    for x in xs:
+        # domínios originais
+        D_up0 = (tss - excluded/2.0) + x
+        D_down0 = (tss + L + Ld) - D_up0
+        # capar domínio pela distância entre RNAPs
+        D_up = min(D_up0, ell_sep)
+        D_down = min(D_down0, ell_sep)
+        # delays específicos
+        d_up = birth_death_delay(D_up, D_up)      # usando D_up for topoI
+        d_down = birth_death_delay(D_down, D_down)  # using D_down for gyrase
+        T_stall += min(d_up, d_down)
+    # 5) adicionar clearance
+    return T_forward + T_stall + tau_clear
+
+# Calcular
+df['T_model'] = df.apply(lambda r: compute_T_elong(r.tss, r.prod_rate, r.mean_elong_sim), axis=1)
+
+# Plot comparativo
+plt.figure(figsize=(7,4))
+plt.plot(df.tss, df.mean_elong_sim, 'k-o', label='Simulação')
+plt.plot(df.tss, df.T_model,       'r-s', label='Modelo completo')
+plt.xscale('log')
+plt.xlabel('TSS (bp)')
+plt.ylabel('Mean Elongation Time (s)')
+plt.title('Modelo com stalls montante/jusante e clearance')
+plt.legend()
+plt.grid(True, which='both', ls=':')
+plt.tight_layout()
+plt.show()

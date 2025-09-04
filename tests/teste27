@@ -1,0 +1,102 @@
+import math
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# — Parâmetros físicos —
+gene_L      = 900.0   # bp
+gene_Ldown  = 520.0   # bp
+v_max       = 25.0    # bp/s
+G           = 18.5    # pN·nm
+phi         = 1/10.5
+
+# TopoI / Gyrase defaults
+lambda_ns_I_def   = 1e-4
+Lambda_s_I_def    = 1.0
+lambda_ns_G_def   = 1e-4
+Lambda_s_G_def    = 2.0
+
+# Parâmetros de saturação / stalls
+alpha  = 0.0001
+kappa  = 0.01
+
+# Domínios quando há 1 RNAP
+D_up_def   = 1000.0           # tss padrão
+D_down_def = gene_L + gene_Ldown
+
+# Simulações de exemplo (você já tem esse DataFrame pronto)
+data = [
+    ("kb",     0.010, 112.563088),
+    ("kb",     0.453,  83.320568),
+    ("kb",   100.000,  82.890564),
+    ("ke",     0.010,  80.036460),
+    ("ke",    10.000,  82.811432),
+    ("ko",     0.010,  80.169580),
+    ("ko",   100.000,  83.420148),
+    ("nsgyrase",1e-6,  79.606184),
+    ("nstopo1", 1e-6,  90.890096),
+    ("sgyrase", 0.020,1251.418612),
+    ("stopo1",  0.010, 779.104032),
+    ("tss",   100.000,109.763228),
+    ("tss",  5000.000, 66.977648),
+]
+df = pd.DataFrame(data, columns=['param','value','elong_time_sim'])
+
+# — Modelo estendido incluindo dependência de kb — 
+def theoretical_T_elong_with_kb(row):
+    # 1) Domínios
+    tss    = row.value if row.param=='tss' else D_up_def
+    D_up   = tss
+    D_down = D_down_def
+    L_dom  = D_up + gene_L + gene_Ldown
+    Lk0_dom = L_dom / 10.5
+
+    # 2) TopoI/Gyrase variáveis
+    lam_ns_I = row.value if row.param=='nstopo1' else lambda_ns_I_def
+    Lam_s_I  = row.value if row.param=='stopo1'  else Lambda_s_I_def
+    lam_ns_G = row.value if row.param=='nsgyrase'else lambda_ns_G_def
+    Lam_s_G  = row.value if row.param=='sgyrase' else Lambda_s_G_def
+
+    # 3) Taxa de relaxamento “mean-field”
+    lam_I = lam_ns_I * D_up   + Lam_s_I
+    lam_G = lam_ns_G * D_down + Lam_s_G
+
+    # 4) Geração de superenrolamento pela iniciação
+    # aproximamos P_sigma ~ 1
+    kb = row.value if row.param=='kb' else 0.453
+    ko = row.value if row.param=='ko' else 0.32
+    ke = row.value if row.param=='ke' else 100.0
+    T_init = 1/kb + 1/ko + 1/ke
+    D_init = 1.0 / T_init
+
+    # 5) soma tudo em lam0
+    lam0 = lam_I + lam_G + D_init
+
+    # 6) velocidade efetiva com saturação e expo
+    x     = (row.value if row.param=='A' else 300.0) * phi * v_max / (G * lam0)
+    v_eff = (v_max / (1 + alpha * x)) * np.exp(-kappa * x)
+
+    # 7) stalls explícitos (igual a você)
+    sigma_stall = - G / (row.value if row.param=='A' else 300.0)
+    dx_stall    = abs(sigma_stall) * L_dom
+    N_stalls    = gene_L / dx_stall
+    n_ev        = math.ceil(Lk0_dom)
+    t_free      = gene_L / v_eff
+    t_stall     = n_ev / lam0
+
+    return t_free + N_stalls * t_stall
+
+df['elong_time_theo'] = df.apply(theoretical_T_elong_with_kb, axis=1)
+
+# — Plot de conferência —
+plt.figure(figsize=(8,5))
+x = np.arange(len(df))
+plt.plot(x, df['elong_time_sim'], 'o-', label='Simulação')
+plt.plot(x, df['elong_time_theo'], 's--', label='Teórico (c/ kb)')
+plt.xticks(x, [f"{p}:{v:.3g}" for p,v in zip(df.param,df.value)],
+           rotation=45, ha='right')
+plt.ylabel('Tempo de Elongação (s)')
+plt.title('Inclusão de dependência de $k_b$ no modelo')
+plt.legend()
+plt.tight_layout()
+plt.show()

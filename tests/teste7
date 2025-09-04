@@ -1,0 +1,68 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+
+# Real simulation data for A=300 (mean elongation time)
+real_data = {
+    100: 108.995808, 200: 105.930240, 250: 103.515472, 300: 102.044444,
+    500: 94.464468, 1000: 82.989236, 2000: 75.767280, 3205: 70.988056,
+    4000: 68.822540, 5000: 67.034956, 8000: 62.073332, 10000: 59.406952,
+    12000: 57.413964, 14000: 55.752504, 16000: 54.484696, 18000: 53.625760,
+    20000: 52.447332
+}
+
+# Theoretical function from our model
+def theoretical_T_elong(L, v_max, G, A, D, lambda_ns, Lambda_s, lambda_ns_g, Lambda_s_g, phi=1/10.5):
+    lambda0 = (lambda_ns * D + Lambda_s) + 2 * (lambda_ns_g * D + Lambda_s_g)
+    v_eff = v_max / (1 + (A * phi * v_max) / (G * lambda0))
+    return L / v_eff
+
+# Simulation parameters
+L = 520
+v_max = 25
+G = 18.5
+lambda_ns = 1e-4
+Lambda_s  = 1
+lambda_ns_g = 1e-4
+Lambda_s_g  = 2
+A = 300
+
+# Build comparison DataFrame
+rows = []
+base_dist = 100
+base_real = real_data[base_dist]
+base_theo = theoretical_T_elong(L, v_max, G, A, base_dist,
+                                 lambda_ns, Lambda_s,
+                                 lambda_ns_g, Lambda_s_g)
+
+for D, real_t in real_data.items():
+    theo_t = theoretical_T_elong(L, v_max, G, A, D,
+                                 lambda_ns, Lambda_s,
+                                 lambda_ns_g, Lambda_s_g)
+    real_drop = 100 * (1 - real_t / base_real)
+    theo_drop = 100 * (1 - theo_t / base_theo)
+    rows.append({
+        'Distance (bp)': D,
+        'Real T_elong (s)': real_t,
+        'Theo T_elong (s)': theo_t,
+        'Real drop (%)': real_drop,
+        'Theo drop (%)': theo_drop
+    })
+
+df = pd.DataFrame(rows).sort_values('Distance (bp)')
+
+# Display table
+
+
+# Plot percentage drop vs distance
+plt.figure(figsize=(8, 5))
+plt.plot(df['Distance (bp)'], df['Real drop (%)'], marker='o', label='Real')
+plt.plot(df['Distance (bp)'], df['Theo drop (%)'], marker='s', label='Theoretical')
+plt.xscale('log')
+plt.xlabel('Distance (bp)')
+plt.ylabel('Percentage Drop in T_elong (%)')
+plt.title('Real vs Theoretical Percentage Drop vs Distance')
+plt.legend()
+plt.grid(True, which="both", ls="--", lw=0.5)
+plt.show()

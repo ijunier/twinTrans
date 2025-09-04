@@ -1,0 +1,89 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from math import ceil
+
+# Sua tabela real (incluindo mean_elong_time de 10k transcritos)
+data = {
+    'tss':             [100,200,250,300,500,1000,2000,3205,4000,5000,8000,10000,12000,14000,16000,18000,20000],
+    'prod_rate':       [0.095777,0.097639,0.100193,0.100654,0.105839,
+                         0.114454,0.119056,0.123227,0.124505,0.126735,
+                         0.129467,0.130707,0.133142,0.135048,0.135754,
+                         0.135853,0.137714],
+    'mean_elong_sim':  [
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+]  # preencha com seu mean_elong_time
+}
+df = pd.DataFrame(data)
+
+# Parâmetros físicos
+L, Ld, excluded = 900.0, 520.0, 30.0
+dx, v_max       = 1.0, 25.0
+tau0            = dx / v_max
+A, phi, G       = 300.0, 1/10.5, 18.5
+sigma_stall     = G/(A*phi)
+lambda_ns_I, Lambda_s_I = 1e-4, 1.0
+lambda_ns_G, Lambda_s_G = 1e-4, 2.0
+b = 1.0 / tau0
+
+# Birth-death stall delay (idêntico ao anterior)
+def birth_death_stall_delay(D_up, D_down):
+    n_star = int(ceil(sigma_stall/phi))
+    A_mat = np.zeros((n_star,n_star))
+    c     = np.zeros(n_star)
+    lam_I = lambda_ns_I * D_up   + Lambda_s_I
+    lam_G = lambda_ns_G * D_down + Lambda_s_G
+    lam0  = lam_I + lam_G
+    for n in range(n_star):
+        denom = b + lam0
+        c[n] = 1.0/denom
+        if n+1<n_star: A_mat[n,n+1] = -b/denom
+        pi = lam_I/denom
+        A_mat[n,n-1 if n>0 else n] += -pi
+        pg = lam_G/denom
+        to = n-2 if n>1 else 0
+        A_mat[n,to] += -pg
+        A_mat[n,n] += 1.0
+    T = np.linalg.solve(A_mat, c)
+    return T[0]
+
+# Novo T_elong com coop
+def T_elong_with_coop(tss, prod_rate, mean_elong_sim, beta=0.0):
+    # 1) v_eff real da sim
+    v_eff_sim = L / mean_elong_sim
+    # 2) spacing
+    ell_sep   = v_eff_sim / prod_rate
+    # 3) avanço cont.
+    T_forward = L / v_eff_sim
+    # 4) stalls com cap em ell_sep
+    T_stall = 0.0
+    for x in np.arange(0, L, dx):
+        Dup0    = (tss - excluded/2.0) + x
+        Ddown0  = (tss + L + Ld)     - Dup0
+        D_up    = min(Dup0,   ell_sep)
+        D_down  = min(Ddown0, ell_sep)
+        T_stall += birth_death_stall_delay(D_up, D_down)
+    # 5) coop
+    f_coop = 1.0 + beta * (L/ell_sep)
+    return T_forward + f_coop * T_stall
+
+# Compute both
+df['T_no_coop'] = df.apply(lambda r: T_elong_with_coop(r.tss, r.prod_rate, r.mean_elong_sim, beta=0.0), axis=1)
+df['T_coop']    = df.apply(lambda r: T_elong_with_coop(r.tss, r.prod_rate, r.mean_elong_sim, beta=1.0), axis=1)
+
+# Plot
+plt.figure(figsize=(8,5))
+plt.plot(df.tss, df.T_no_coop, 'b.--', label='Sem coop (β=0)')
+plt.plot(df.tss, df.T_coop,    'g.--', label='Com coop (β=1)')
+plt.plot(df.tss, df.mean_elong_sim, 'k.-', label='Simulação')
+plt.xscale('log')
+plt.xlabel('TSS (bp)')
+plt.ylabel('Tempo médio de elongação (s)')
+plt.title('Modelo Multi-RNAP c/ spacing real')
+plt.legend()
+plt.grid(True, which='both', ls=':')
+plt.tight_layout()
+plt.show()
+

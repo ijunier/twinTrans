@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# =========================
+# Parâmetros "default"
+# =========================
+L_bp    = 900.0      # comprimento do gene (bp)
+Ld_bp   = 520.0      # separação downstream (bp)
+rel_bp  = 30.0       # comprimento excluído (bp) p/ posição efetiva da RNAP no TSS
+v_max   = 25.0       # bp/s
+G       = 18.5       # pN·nm
+A       = 300.0      # pN·nm
+phi     = 1/10.5     # turns/bp
+sigma_stall = -G/A   # < 0
+
+# TopoI (upstream) — taxas base
+lambda_ns_T_def = 1e-4  # 1/(bp·s)  (não-específica)
+Lambda_s_T_def  = 1.0   # 1/s       (específica)
+
+# Gyrase (downstream) — taxas base
+lambda_ns_G_def = 1e-4  # 1/(bp·s)  (não-específica)
+Lambda_s_G_def  = 2.0   # 1/s       (específica)
+
+# Limiares de gating (iguais ao que o código usa conceitualmente)
+sigma_a = -0.05        # TopoI ativa abaixo desse sigma (negativo)
+sigma_g =  0.00        # gyrase ativa acima desse sigma (positivo)
+w_T     = 0.02         # largura de suavização do degrau TopoI
+w_G     = 0.02         # largura de suavização do degrau gyrase
+
+EPS = 1e-12            # clamps numéricos pequenos
+
+# =========================
+# Funções auxiliares
+# =========================
+def logistic_on(z):
+    """sigmóide padrão 1/(1+exp(-z)) com clamps p/ evitar overflow."""
+    z = np.clip(z, -60.0, 60.0)
+    return 1.0/(1.0+np.exp(-z))
+
+def gate_topoI(sig):
+    # liga quando sig < sigma_a
+    return logistic_on((sigma_a - sig)/max(w_T, EPS))
+
+def gate_gyrase(sig):
+    # liga quando sig > sigma_g
+    return logistic_on((sig - sigma_g)/max(w_G, EPS))
+
+def compute_mean_elongation_time_ode(
+    tss_bp,
+    # taxas (possivelmente sobrescritas por cenário):
+    lambda_ns_T=lambda_ns_T_def,
+    Lambda_s_T =Lambda_s_T_def,
+    lambda_ns_G=lambda_ns_G_def,
+    Lambda_s_G =Lambda_s_G_def,
+    # parâmetros fixos:
+    L=L_bp, Ld=Ld_bp, rel=rel_bp, v_max=v_max,
+    phi=phi, sigma_stall=sigma_stall
+):
+    """
+    Integra as ODEs para σ_up, σ_down com gating e acoplamento,
+    e retorna o tempo até a RNAP percorrer x = L.
+    """
+    # Geometria inicial dos domínios em bp
+    x0_bp       = tss_bp - rel/2.0           # posição efetiva inicial da RNAP
+    D_dom_bp    = tss_bp + L + Ld            # todo domínio entre barreiras
+    D_up0_bp    = max(x0_bp, 1.0)
+    D_down0_bp  = max(D_dom_bp - x0_bp, 1.0)
+
+    # Eventos: parar quando x = L
+    def hit_stop(t, y):
+        return y[2] - L
+    hit_stop.terminal  = True
+    hit_stop.direction = 1
+
+    s_abs_stall = abs(sigma_stall)
+
+    def rhs(t, y):
+        sig_up, sig_down, x = y
+
+        # subdomínios (não permitir encolher a zero)
+        D_up_bp   = max(D_up0_bp   + x, 1.0)
+        D_down_bp = max(D_down0_bp - x, 1.0)
+
+        Lk0_up    = D_up_bp   / 10.5
+        Lk0_down  = D_down_bp / 10.5
+
+        # taxas de relaxamento por lado
+        # TopoI específica só no upstream (gated)
+        lam_up   = (lambda_ns_T*D_up_bp)   + gate_topoI(sig_up)*Lambda_s_T \
+                 + 2.0*(lambda_ns_G*D_up_bp)  # contribuição ns da girase (fraca) no up
+
+        # Gyrase específica só no downstream (gated)
+        lam_down = (lambda_ns_T*D_down_bp) \
+                 + 2.0*(lambda_ns_G*D_down_bp + gate_gyrase(sig_down)*Lambda_s_G)
+
+        # criação de σ e relaxamento
+        # sinais: upstream tende a ficar negativo; downstream, positivo
+        s_up_src   = - (phi * v_max) / max(Lk0_up,   EPS)
+        s_down_src = + (phi * v_max) / max(Lk0_down, EPS)
+
+        # velocidade instantânea limitada pelo maior |σ|
+        s_max = max(abs(sig_up), abs(sig_down))
+        throttle = max(0.0, 1.0 - s_max/s_abs_stall)
+        v = v_max * throttle
+
+        # ODEs
+        dsig_up   = s_up_src   * throttle - lam_up   * sig_up
+        dsig_down = s_down_src * throttle - lam_down * sig_down
+        dx        = v
+        return [dsig_up, dsig_down, dx]
+
+    # condições iniciais
+    y0 = [0.0, 0.0, 0.0]
+    sol = solve_ivp(
+        rhs, (0.0, 1e5), y0,
+        events=hit_stop,
+        max_step=1.0,
+        rtol=1e-6, atol=1e-8
+    )
+
+    T = sol.t_events[0][0] if sol.t_events[0].size>0 else sol.t[-1]
+    return T
+
+# ============================================================
+#  Pequeno comparativo nos seus cenários (mesma tabela de antes)
+# ============================================================
+data = [
+    ("kb",       0.010,   112.563088),
+    ("kb",       0.453,    83.320568),
+    ("kb",     100.000,    82.890564),
+    ("ke",       0.010,    80.036460),
+    ("ke",      10.000,    82.811432),
+    ("ko",       0.010,    80.169580),
+    ("ko",     100.000,    83.420148),
+    ("nsgyrase", 1e-6,     79.606184),
+    ("nstopo1",  1e-6,     90.890096),
+    ("sgyrase",  0.020,  1251.418612),
+    ("stopo1",   0.010,   779.104032),
+    ("tss",    100.000,   109.763228),
+    ("tss",   5000.000,    66.977648),
+]
+df = pd.DataFrame(data, columns=['param','value','elong_time_sim'])
+
+def run_row(row):
+    # parâmetros default
+    tss   = 1000.0
+    lnsT  = lambda_ns_T_def
+    LaT   = Lambda_s_T_def
+    lnsG  = lambda_ns_G_def
+    LaG   = Lambda_s_G_def
+
+    if row.param == 'tss':       tss  = float(row.value)
+    if row.param == 'nstopo1':   lnsT = float(row.value)
+    if row.param == 'stopo1':    LaT  = float(row.value)
+    if row.param == 'nsgyrase':  lnsG = float(row.value)
+    if row.param == 'sgyrase':   LaG  = float(row.value)
+
+    T = compute_mean_elongation_time_ode(
+        tss_bp=tss,
+        lambda_ns_T=lnsT, Lambda_s_T=LaT,
+        lambda_ns_G=lnsG, Lambda_s_G=LaG
+    )
+    return T
+
+df['elong_time_theo_ode'] = df.apply(run_row, axis=1)
+
+print(df[['param','value','elong_time_sim','elong_time_theo_ode']].to_string(index=False))
+
+# =========================
+# Plot
+# =========================
+plt.figure(figsize=(11,5))
+x = np.arange(len(df))
+xticklabels = [f"{p}:{float(v):.3g}" for p,v in zip(df.param, df.value)]
+plt.plot(x, df['elong_time_sim'], 'o-', label='Simulação')
+plt.plot(x, df['elong_time_theo_ode'], 's--', label='Teórico ODE (2 domínios)')
+plt.xticks(x, xticklabels, rotation=45, ha='right')
+plt.ylabel('Tempo de Elongação (s)')
+plt.title('Comparação: Simulado vs. Modelo ODE c/ gating (TopoI & Gyrase)')
+plt.grid(True, ls='--', alpha=0.3)
+plt.legend()
+plt.tight_layout()
+plt.show()

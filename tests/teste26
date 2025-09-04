@@ -1,0 +1,96 @@
+import math
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Dados simulados ---
+distances = [100, 200, 250, 300, 500, 1000, 2000, 3000, 4000, 5000]
+As = [200, 233, 267, 300, 333, 367]
+sim_values = [
+    [94.775872, 100.799064, 105.438544, 108.995808, 112.457480, 115.994708],
+    [85.683848,  92.409964,  99.463164,  105.930240, 110.807924, 114.983956],
+    [82.563592,  89.006612,  96.692028,  103.515472, 109.246292, 115.172788],
+    [81.718764,  86.344536,  93.984072,  102.044444, 108.520784, 114.170236],
+    [78.422436,  81.261212,  85.176672,  94.464468, 104.312520, 113.542600],
+    [75.446092,  76.905688,  78.862932,  82.989236,  94.292052, 110.466452],
+    [71.926500,  72.898484,  74.104520,  75.767280,  81.028140, 105.702060],
+    [69.192792,  70.240136,  71.002288,  72.086152,  75.109692, 101.412504],
+    [66.608792,  67.915612,  68.255540,  68.822540,  71.078900,  97.423932],
+    [64.680700,  65.582692,  66.098008,  67.034956,  68.415760,  94.136632],
+]
+sim_df = (
+    pd.DataFrame(sim_values, index=distances, columns=As)
+      .reset_index().melt(id_vars='index', var_name='A', value_name='T_sim')
+      .rename(columns={'index':'tss'})
+)
+
+# --- Parâmetros padrão ---
+gene_L       = 900.0
+gene_Ldown   = 520.0
+v_max        = 25.0
+G            = 18.5
+phi          = 1/10.5
+
+lambda_ns_def   = 1e-4
+Lambda_s_def    = 1.0
+lambda_ns_g_def = 1e-4
+Lambda_s_g_def  = 2.0
+
+alpha = 0.0001
+kappa = 0.01
+
+# --- Modelo clássico (usa A variável!) ---
+def T_theo_classic(row):
+    A    = row['A']
+    D_dom = row['tss'] + gene_L + gene_Ldown
+    lam0 = (
+        lambda_ns_def * D_dom + Lambda_s_def
+        + 2*(lambda_ns_g_def * D_dom + Lambda_s_g_def)
+    )
+    v_eff = v_max / (1 + (A * phi * v_max) / (G * lam0))
+    return gene_L / v_eff
+
+# --- Modelo melhorado (usa A variável!) ---
+#def T_theo_improved(row):
+    A      = row['A']
+    D_up   = row['tss']
+    D_down = gene_L + gene_Ldown
+    L_dom  = D_up + D_down
+
+    lam_I = lambda_ns_def * D_up   + Lambda_s_def
+    lam_G = lambda_ns_g_def * D_down + Lambda_s_g_def
+    lam0  = lam_I + lam_G
+
+    x     = (A * phi * v_max) / (G * lam0)
+    v_eff = (v_max / (1 + alpha * x)) * np.exp(-kappa * x)
+
+    t_free   = gene_L / v_eff
+    sigma_stall = -G / A
+    dx_stall    = abs(sigma_stall) * L_dom
+    N_stalls    = gene_L / dx_stall
+    n_ev        = math.ceil(L_dom / 10.5)
+    t_stall     = n_ev / lam0
+
+    return t_free + N_stalls * t_stall
+
+# Aplica
+sim_df['T_theo_classic']  = sim_df.apply(T_theo_classic, axis=1)
+#sim_df['T_theo_improved'] = sim_df.apply(T_theo_improved, axis=1)
+
+# --- Plot corrigido ---
+plt.figure(figsize=(10,6))
+for A_val in As:
+    sub = sim_df[sim_df['A']==A_val]
+    plt.plot(sub['tss'], sub['T_sim'],         'o-',  label=f'Sim A={A_val}')
+    plt.plot(sub['tss'], sub['T_theo_classic'],'s--', label=f'Classic A={A_val}')
+    #plt.plot(sub['tss'], sub['T_theo_improved'],'^:', label=f'Improved A={A_val}')
+
+plt.xscale('log')
+plt.xlabel('tss (bp)')
+plt.ylabel('Mean Elongation Time (s)')
+plt.title('Simulação vs Teoria (clássico e melhorado)')
+plt.legend(ncol=3, fontsize='small')
+plt.grid(True, which='both', ls='--', lw=0.5)
+plt.tight_layout()
+plt.show()
+

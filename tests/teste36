@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+# --------------------------
+# Parâmetros geométricos
+# --------------------------
+tss        = 1000.0     # bp
+excluded   = 30.0       # bp (tamanho de exclusão RNAP)
+L_gene     = 900.0      # bp
+L_down     = 520.0      # bp
+L_dom_bp   = tss + L_gene + L_down
+
+rnap_xi_bp = tss - excluded/2.0        # posição do centro da RNAP ao ligar (~485 bp)
+L_up0_bp   = rnap_xi_bp                 # upstream livre inicialmente (bp)
+L_down0_bp = L_dom_bp - L_up0_bp        # downstream restante (bp)
+
+# --------------------------
+# Parâmetros físico-químicos
+# --------------------------
+v_max       = 25.0                      # bp/s
+A           = 300.0                     # pN·nm
+G           = 18.5                      # pN·nm
+sigma_stall = G / A                     # ~ 0.0617 (limiar positivo)
+
+# Topo I (upstream) & Gyrase (downstream)
+lambda_ns_I = 1e-4    # 1/(bp·s)  Topo I não-específica
+Lambda_s_I  = 1.0     # 1/s       Topo I específica
+lambda_ns_G = 1e-4    # 1/(bp·s)  Girase não-específica
+Lambda_s_G  = 2.0     # 1/s       Girase específica
+
+sigma_active = -0.05  # limiar de ativação da Topo I (negativo)
+
+# --------------------------
+# RHS do sistema
+# y = [sigma_up, sigma_down, x]
+# --------------------------
+def rhs(t, y):
+    sigma_up, sigma_down, x = y
+
+    # domínios em bp (e Lk0)
+    L_up_bp   = max(1.0, L_up0_bp + x)              # evita zero
+    L_down_bp = max(1.0, L_dom_bp - L_up_bp)
+    Lk0_up    = L_up_bp   / 10.5
+    Lk0_down  = L_down_bp / 10.5
+
+    # portas (gating) por limiar
+    H_I  = 1.0 if (sigma_up  <= sigma_active) else 0.0      # Topo I ativa em σ negativo
+    H_G  = 1.0 if (sigma_down >= sigma_stall) else 0.0      # Girase ativa em σ positivo
+
+    # taxas de eventos (1/s) por segmento
+    k_I_up    = H_I * (lambda_ns_I * L_up_bp   + Lambda_s_I)
+    k_G_down  = H_G * (lambda_ns_G * L_down_bp + Lambda_s_G)
+
+    # velocidade efetiva (clamp simples ao stall)
+    m = max(sigma_down/sigma_stall, (-sigma_up)/sigma_stall, 0.0)
+    v_eff = v_max * max(0.0, 1.0 - m)
+
+    # fonte de σ (geração pelo avanço da RNAP) – sinais opostos
+    src_up   = - v_eff / L_up_bp
+    src_down = + v_eff / L_down_bp
+
+    # relaxação linearizada em σ (Topol: 1 volta/evento; Girase: 2 voltas/evento)
+    # dσ/dt|relax ≈ - (k * ΔLk_por_evento) / Lk0 * σ   → coef. (=k/Lk0 para Topo I; =2k/Lk0 para girase)
+    rel_up   = - (k_I_up   / Lk0_up)   * sigma_up
+    rel_down = - (2*k_G_down / Lk0_down) * sigma_down
+
+    dsigma_up   = src_up   + rel_up
+    dsigma_down = src_down + rel_down
+    dx          = v_eff
+
+    return [dsigma_up, dsigma_down, dx]
+
+# evento de término (x = L_gene)
+def hit_terminal(t, y):
+    return y[2] - L_gene
+hit_terminal.terminal  = True
+hit_terminal.direction = 1
+
+y0 = [0.0, 0.0, 0.0]
+
+sol = solve_ivp(
+    rhs, (0, 1e5), y0,
+    events=hit_terminal,
+    max_step=0.5,
+    atol=1e-7, rtol=1e-7
+)
+
+t = sol.t
+sigma_up, sigma_down, x = sol.y
+t_final = sol.t_events[0][0] if sol.t_events[0].size>0 else t[-1]
+print(f"Mean elongation time (ODE model): {t_final:.3f} s")
+
+# v_eff(t) numérico
+v_eff_time = np.gradient(x, t)
+
+# Plots
+plt.figure(figsize=(10,4))
+plt.subplot(1,2,1)
+plt.plot(t, v_eff_time)
+plt.xlabel("t (s)")
+plt.ylabel("v_eff (bp/s)")
+plt.title(f"v_eff — T ≈ {t_final:.1f}s")
+
+plt.subplot(1,2,2)
+plt.plot(t, sigma_up,   label="σ_up (neg)")
+plt.plot(t, sigma_down, label="σ_down (pos)")
+plt.axhline(-sigma_stall, ls='--', lw=0.8, label='−σ_stall')
+plt.axhline(+sigma_stall, ls='--', lw=0.8, label='+σ_stall')
+plt.axhline(sigma_active, ls=':',  lw=0.8, label='σ_active (Topo I)')
+plt.xlabel("t (s)")
+plt.ylabel("σ")
+plt.legend()
+plt.tight_layout()
+plt.show()

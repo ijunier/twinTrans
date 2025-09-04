@@ -1,0 +1,199 @@
+import os, re, glob, math
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# CONFIGURAÇÃO DO EXPERIMENTO
+# =========================
+ROOT   = "results_final_kb_0.453"   # mude se necessário
+KO     = 0.238731                   # ko escolhido (pasta ko_<...>)
+KB     = 0.453                      # kb fixo desse bloco de simulações
+KE     = 100.0                      # taxa de escape
+TSS_LIST = [100, 1000, 5000]        # tss a comparar
+DEFAULT_L = 900.0                   # bp
+
+# P_open(d) medido (A=300) que você já nos deu
+P_OPEN_TABLE = {
+    100: 0.746,
+    200: 0.767, 250: 0.780, 300: 0.796, 500: 0.843,
+    1000: 0.943, 2000: 0.982, 3000: 0.993, 4000: 0.998,
+    5000: 0.998, 8000: 1.000, 10000: 0.999, 12000: 1.000,
+    14000: 1.000, 16000: 1.000, 18000: 1.000, 20000: 1.000
+}
+def P_open(d):
+    # usa exatamente os valores conhecidos; se não existir, usa o mais próximo
+    if d in P_OPEN_TABLE: return P_OPEN_TABLE[d]
+    # vizinho mais próximo
+    keys = np.array(sorted(P_OPEN_TABLE.keys()))
+    return P_OPEN_TABLE[int(keys[np.argmin(np.abs(keys-d))])]
+
+# =========================
+# PARÂMETROS FÍSICOS (autônomo)
+# =========================
+n = 10.5
+vmax = 25.0
+G, A = 18.5, 300.0
+sigma0 = -0.05
+sigstall = -G/A
+W = abs(sigma0 - sigstall)          # ~0.0117
+Lambda_s  = 1.0                     # Topo I específica (s^-1)
+lambda_ns = 1e-4                    # Topo I não-esp por bp (s^-1 bp^-1)
+
+# Gírase (platô jusante)
+Lambda_s_g  = 2.0
+lambda_ns_g = 1e-4
+L_down      = 1420.0                # gene+espaçador (ajusta o platô ~16 bp/s)
+
+T_run = n / vmax
+
+def t_act(d):
+    return min(W*d / vmax, T_run)
+
+def phi(d):
+    return t_act(d) / T_run
+
+def p_on(d, k):
+    # ocupância média frente a unbinding k
+    Lam_bind = Lambda_s + lambda_ns * d
+    return Lam_bind / (Lam_bind + k)
+
+def R_eff(d, k):
+    return p_on(d,k) * (Lambda_s + lambda_ns * d * phi(d))
+
+def v_up(d, k):
+    Re = R_eff(d,k)
+    ta = t_act(d)
+    return n / (T_run + math.exp(-Re*ta)/Re)
+
+def v_down():
+    Rg = 2.0 * (Lambda_s_g + lambda_ns_g * L_down)
+    return (n * vmax * Rg) / (vmax + n * Rg)
+
+V_DOWN = v_down()
+
+def v_eff_auto(d, k):
+    return min(v_up(d,k), V_DOWN, vmax)
+
+# =========================
+# LEITURA DOS DADOS (mean_properties)
+# =========================
+def parse_val(name, key):
+    m = re.search(rf"{key}_([0-9Ee+\-\.]+)", name)
+    return float(m.group(1)) if m else None
+
+def read_mean_props(mp_path):
+    # lê dataframe, retorna (L, k_un, v_eff_data)
+    # por convenção usamos a ÚLTIMA linha (steady state)
+    # v_eff_data = L / mean_elong_time
+    L = DEFAULT_L
+    # tenta descobrir L no param_var.txt ao lado
+    pv = os.path.join(os.path.dirname(mp_path), "param_var.txt")
+    if os.path.isfile(pv):
+        with open(pv) as f:
+            for line in f:
+                if ("gene_length" in line) or ("L_gene" in line):
+                    try: L = float(line.split("=")[1].strip())
+                    except: pass
+                    break
+    try:
+        df = pd.read_csv(mp_path, sep="\t")
+    except Exception:
+        df = pd.read_csv(mp_path, sep=r"\s+")
+    df = df.dropna(subset=["mean_elong_time"])
+    last = df.iloc[-1]
+    v_eff_data = L / float(last["mean_elong_time"])
+    return L, v_eff_data
+
+# =========================
+# LOOP: ko_<...>/kun_*/tss_*
+# =========================
+rows = []
+ko_dir = os.path.join(ROOT, f"ko_{KO:g}")
+if not os.path.isdir(ko_dir):
+    raise SystemExit(f"Não encontrei {ko_dir}")
+
+kun_dirs = sorted(glob.glob(os.path.join(ko_dir, "kun_*")),
+                  key=lambda p: parse_val(p,"kun"))
+
+for tss in TSS_LIST:
+    for kun_dir in kun_dirs:
+        k = parse_val(kun_dir, "kun")
+        mp = os.path.join(kun_dir, f"tss_{tss}", "mean_properties.txt")
+        if not os.path.isfile(mp): 
+            continue
+        L, v_data = read_mean_props(mp)
+        v_auto = v_eff_auto(tss, k)
+
+        # Delta com os dois v_eff
+        P = P_open(tss)
+        tau_bind  = 1.0 / (KB * P)
+        tau_OC    = 1.0 / (KO * P)
+        tau_esc   = 1.0 / KE
+        Lclear    = 30.0
+
+        Delta_data = tau_bind + tau_OC + tau_esc + Lclear / v_data
+        Delta_auto = tau_bind + tau_OC + tau_esc + Lclear / v_auto
+
+        rows.append({
+            "TSS": tss, "k_un": k, "L(bp)": L,
+            "v_eff_data": v_data, "v_eff_auto": v_auto,
+            "Delta_data": Delta_data, "Delta_auto": Delta_auto,
+            "kc_from_data": 1.0/Delta_data, "kc_from_auto": 1.0/Delta_auto
+        })
+
+df = pd.DataFrame(rows).sort_values(["TSS","k_un"])
+
+# =========================
+# RELATÓRIO
+# =========================
+def summarize(group):
+    # RMSE e viés entre v_auto e v_data por TSS
+    g = group.dropna(subset=["v_eff_data","v_eff_auto"])
+    if g.empty:
+        return pd.Series({})
+    rmse_v = np.sqrt(np.mean((g["v_eff_auto"]-g["v_eff_data"])**2))
+    mae_v  = np.mean(np.abs(g["v_eff_auto"]-g["v_eff_data"]))
+    bias_v = np.mean(g["v_eff_auto"]-g["v_eff_data"])
+    rmse_kc = np.sqrt(np.mean((g["kc_from_auto"]-g["kc_from_data"])**2))
+    mae_kc  = np.mean(np.abs(g["kc_from_auto"]-g["kc_from_data"]))
+    bias_kc = np.mean(g["kc_from_auto"]-g["kc_from_data"])
+    return pd.Series({
+        "RMSE v (bp/s)": rmse_v, "MAE v": mae_v, "Bias v": bias_v,
+        "RMSE kc (1/s)": rmse_kc, "MAE kc": mae_kc, "Bias kc": bias_kc
+    })
+
+summary = df.groupby("TSS").apply(summarize)
+print("\n=== Comparação v_eff e Δ (dados vs autônomo) ===")
+print(df.head(12).to_string(index=False))
+print("\n=== Métricas por TSS (auto vs data) ===")
+print(summary.to_string())
+
+# =========================
+# PLOTS
+# =========================
+for tss in TSS_LIST:
+    sub = df[df["TSS"]==tss]
+    if sub.empty: continue
+    x = sub["k_un"].values
+    plt.figure(figsize=(6.5,4))
+    plt.plot(x, sub["v_eff_data"], "o-", label="v_eff (mean_properties)")
+    plt.plot(x, sub["v_eff_auto"], "s--", label="v_eff (autônomo)")
+    plt.xscale("log"); plt.xlabel("k_unbinding (s$^{-1}$)")
+    plt.ylabel("v_eff (bp/s)")
+    plt.title(f"TSS = {tss} bp — v_eff: dados vs autônomo")
+    plt.grid(True, which="both", ls=":", lw=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    plt.figure(figsize=(6.5,4))
+    plt.plot(x, sub["kc_from_data"], "o-", label="k_c = 1/Δ (usando v_eff dados)")
+    plt.plot(x, sub["kc_from_auto"], "s--", label="k_c = 1/Δ (usando v_eff autônomo)")
+    plt.xscale("log"); plt.xlabel("k_unbinding (s$^{-1}$)")
+    plt.ylabel("k_c (1/s)")
+    plt.title(f"TSS = {tss} bp — k_c(d,k) por Δ: dados vs autônomo")
+    plt.grid(True, which="both", ls=":", lw=0.6)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()

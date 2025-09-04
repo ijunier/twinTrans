@@ -1,0 +1,64 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.special import erf, erfc
+
+# 1) Defina seus parâmetros de modelo
+lambda_ns   = 1e-4      # TopoI não-específica (/Lk-unit/s)
+lambda_ns_g = 1e-4      # Gyrase não-específica (/Lk-unit/s)
+Lambda_s    = 1         # TopoI específica (/s)
+Lambda_s_g  = 2         # Gyrase específica (/s)
+phi         = 1/10.5
+L, v_max, G, A = 520, 25, 18.5, 300
+sigma_active = -0.05
+sigma_stall  = -G/A     # ≈ -0.0617
+
+def solve_T_elong(D, c_noise):
+    # taxa não-específica total
+    lam_ns_tot = lambda_ns * D + 0.5 * lambda_ns_g * D
+    sigma_bar = -0.06   # chute inicial
+
+    for _ in range(50):
+        # drift linearizado
+        k = lam_ns_tot + (A * phi * v_max) / G
+        var_s = (c_noise / D) / k
+
+        # probabilidades
+        pI = 0.5 * (1 + erf((sigma_active - sigma_bar) / np.sqrt(2 * var_s)))
+        pG = 0.5 * erfc((sigma_stall  - sigma_bar) / np.sqrt(2 * var_s))
+
+        # nova taxa total
+        lam0 = lam_ns_tot + Lambda_s * pI + 0.5 * Lambda_s_g * pG
+
+        # velocidade efetiva e atualização de σ_bar
+        v_eff = v_max * (1 - A * sigma_bar / G)
+        sigma_bar = phi * v_eff / lam0
+
+    # tempo de elongação
+    return L / (v_max * (1 - A * sigma_bar / G))
+
+# 2) Carregue seus dados de simulação (CSV com colunas: D, c_noise, T_sim)
+sim_df = pd.read_csv('simulation_results.csv')
+
+# 3) Calcule a predição do modelo
+sim_df['T_model'] = sim_df.apply(lambda r: solve_T_elong(r['D'], r['c_noise']), axis=1)
+
+# 4) Avalie o erro
+sim_df['error'] = sim_df['T_model'] - sim_df['T_sim']
+mse = np.mean(sim_df['error']**2)
+rmse = np.sqrt(mse)
+print(f'RMSE entre modelo e simulação: {rmse:.3f} s')
+
+# 5) Plote comparação
+plt.figure()
+plt.scatter(sim_df['T_sim'], sim_df['T_model'])
+max_val = max(sim_df['T_sim'].max(), sim_df['T_model'].max())
+plt.plot([0, max_val], [0, max_val], linestyle='--')
+plt.xlabel('T_sim (s)')
+plt.ylabel('T_model (s)')
+plt.title('Comparação: modelo vs. simulação')
+plt.show()
+
+# 6) Exiba a tabela de comparação
+
+

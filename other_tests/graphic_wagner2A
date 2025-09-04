@@ -1,0 +1,73 @@
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- Configurações ---
+root_dir            = 'results_final_kb_100'  # pasta com subdirs ko_*
+kun_choice          = 'kun_0.001'
+tss_choice          = 'tss_1000'
+default_gene_length = 3000                # ajuste para o seu gene (nt)
+
+records = []
+
+for ko_dir in sorted(os.listdir(root_dir)):
+    if not ko_dir.startswith('ko_'): continue
+    ko_val   = float(ko_dir.split('_')[1])
+    sim_path = os.path.join(root_dir, ko_dir, kun_choice, tss_choice)
+    mean_fp  = os.path.join(sim_path, 'mean_properties.txt')
+    param_fp = os.path.join(sim_path, 'param_var.txt')
+    if not os.path.isfile(mean_fp): 
+        print("Ignorando", mean_fp); continue
+
+    # Lê apenas as linhas puramente numéricas
+    data_lines = []
+    with open(mean_fp) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'): continue
+            parts = line.split()
+            try:
+                floats = [float(x) for x in parts]
+            except ValueError:
+                continue
+            data_lines.append(floats)
+    if not data_lines:
+        print("Nenhum dado em", mean_fp)
+        continue
+
+    # Última linha = steady-state multi-RNAP
+    last = data_lines[-1]
+    prod_rate     = last[2]   # transcritos por segundo
+    mean_elong    = last[-1]  # tempo médio de elongação (s)
+
+    # comprimento do gene
+    gene_length = default_gene_length
+    if os.path.isfile(param_fp):
+        with open(param_fp) as f:
+            for ln in f:
+                if 'gene_length' in ln or 'L_gene' in ln:
+                    try:
+                        gene_length = float(ln.split('=')[1])
+                    except:
+                        pass
+                    break
+
+    # calcula v (nt/s) e Δx (kb)
+    v      = gene_length / mean_elong
+    avg_dx = (v / prod_rate) / 1000.0
+
+    records.append({'ko': ko_val, 'Δx_kb': avg_dx, 'v_nt_s': v})
+
+# monta DF e plota
+df = pd.DataFrame(records).sort_values('Δx_kb')
+
+plt.figure(figsize=(5,4))
+plt.plot(df['Δx_kb'], df['v_nt_s'], 'o-', lw=2)
+plt.axvline(2.0, ls='--', color='gray', label='2 kb')
+plt.xlabel('⟨Δx⟩ (kb)')
+plt.ylabel('velocidade de elongação (nt/s)')
+plt.title('Cooperação de longo alcance (Fig. 2A–B)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+

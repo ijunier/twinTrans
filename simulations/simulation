@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 # ——————————————————————————————————————————
 # Parâmetros
-tss         = 500
+tss         = 1000
 excluded    = 30
 rnap_xi     = tss - excluded/2         # 485 bp
 Lk0_up0     = rnap_xi / 10.5           # ≈46.19

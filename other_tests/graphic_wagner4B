@@ -1,0 +1,79 @@
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- Configurações ---
+root_dir = 'results_final_ko_100'       # pasta com subdirs kb_*
+tss_choice = 'tss_1000'                  # ou 'tss_1000', 'tss_5000'
+default_gene_length = 900            # nt, se não extraído de param_var.txt
+
+records = []
+
+for kb_dir in sorted(os.listdir(root_dir)):
+    if not kb_dir.startswith('kb_'):
+        continue
+    kb_val = float(kb_dir.split('_')[1])
+    mean_file = os.path.join(root_dir, kb_dir, 'kun_0.0707111', tss_choice, 'mean_properties.txt')
+    param_file = os.path.join(root_dir, kb_dir, 'kun_0.0707111', tss_choice, 'param_var.txt')
+
+    if not os.path.isfile(mean_file):
+        print(f"Ignorando {mean_file}: não encontrado.")
+        continue
+
+    # --- Captura a primeira linha de dados válidos ---
+    with open(mean_file) as f:
+        data_line = None
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            parts = line.split()
+            # testa se todos os campos são numéricos
+            try:
+                [float(x) for x in parts]
+            except ValueError:
+                continue
+            data_line = parts
+            break
+
+    if data_line is None:
+        print(f"Nenhuma linha de dados em {mean_file}")
+        continue
+
+    # mean_elong_time é o último valor dessa linha
+    mean_elong = float(data_line[-1])
+
+    # --- Extrai gene_length ---
+    gene_length = None
+    if os.path.isfile(param_file):
+        with open(param_file) as f:
+            for line in f:
+                if 'gene_length' in line or 'L_gene' in line:
+                    parts = line.strip().split('=')
+                    if len(parts) == 2:
+                        try:
+                            gene_length = float(parts[1])
+                        except ValueError:
+                            pass
+                    break
+    if gene_length is None:
+        gene_length = default_gene_length
+
+    # --- Calcula e armazena r_miller ---
+    r_miller = gene_length / mean_elong
+    records.append({'kb': kb_val, 'r_miller': r_miller})
+
+# --- Monta o DataFrame e plota ---
+if not records:
+    raise RuntimeError("Nenhum dado válido encontrado — verifique caminhos e arquivos.")
+
+df_res = pd.DataFrame(records).sort_values('kb')
+
+plt.figure(figsize=(4,3))
+plt.bar(df_res['kb'].astype(str), df_res['r_miller'])
+plt.xscale('log')
+plt.xlabel('promoter_kb (proxy para [IPTG])')
+plt.ylabel('r$_{Miller}$ (nt/s)')
+plt.title('Painel 1C: velocidade de elongação do 1º RNAP')
+plt.tight_layout()
+plt.show()

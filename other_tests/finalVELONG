@@ -1,0 +1,116 @@
+# Compute and plot velocities vs TSS for two models, and print metrics for 100–20000 and 100–5000
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ---------------- Data (simulation) ----------------
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000], dtype=float)
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+], dtype=float)
+L_gene = 900.0
+v_sim = L_gene / T_real_array
+
+# ---------------- Parameters ----------------
+n = 10.5
+vmax = 25.0
+
+# Upstream Topo I
+Lambda_s = 1.0
+lambda_ns = 1e-4
+
+# Sigma thresholds (A=300, G=18.5)
+G = 18.5
+A = 300.0
+sigma0 = -0.05
+sigma_stall = -G / A
+W = abs(sigma0 - sigma_stall)      # janela ativa
+T_run = n / vmax                    # tempo para caminhar n bp
+
+# φ_stall (geométrico com overshoot)
+def phi_stall(tss):
+    J = n / tss                     # salto por evento (em σ)
+    delta = np.maximum(0.0, J - W)  # overshoot acima de σ0
+    return W / (W + delta)
+
+# Taxa total a montante (Topo I específica + não-específica)
+def R_up(tss):
+    return Lambda_s + lambda_ns * tss
+
+# Velocidade montante corrigida (overlap estocástico)
+def v_up_corrected_stall(tss):
+    phi = phi_stall(tss)
+    Rup = R_up(tss)
+    extra_wait = np.exp(-Rup * phi * T_run) / Rup
+    return n / (T_run + extra_wait)
+
+# ---------------- Downstream (gyrase) cap ----------------
+Lambda_g = 2.0
+lambda_ns_g = 1e-4
+L_down = 1420.0  # gene + spacer no seu "best"
+
+def v_down(Ldown):
+    R0 = Lambda_g + lambda_ns_g * Ldown          # eventos/s
+    return (2*n) / ( (2*n)/vmax + 1.0/R0 )       # = n*vmax*Rdown/(vmax+n*Rdown)
+
+vdown_const = v_down(L_down)
+
+# ---------------- Models ----------------
+def v_best(d):
+    return min(v_up_corrected_stall(d), vdown_const, vmax)
+
+def v_up_only(d):
+    return min(v_up_corrected_stall(d), vmax)  # sem limite da gírase
+
+v_best_arr = np.array([v_best(float(d)) for d in tss_array])
+v_up_only_arr = np.array([v_up_only(float(d)) for d in tss_array])
+
+# ---------------- Métricas ----------------
+def stats(y_true, y_pred):
+    err  = y_pred - y_true
+    me   = float(np.mean(err))
+    mae  = float(np.mean(np.abs(err)))
+    rmse = float(np.sqrt(np.mean(err**2)))
+    r    = float(np.corrcoef(y_true, y_pred)[0,1])
+    sse  = float(np.sum((y_true - y_pred)**2))
+    sst  = float(np.sum((y_true - np.mean(y_true))**2))
+    R2   = float(1 - sse/sst)
+    mape = float(np.mean(np.abs(err / y_true)) * 100)
+    return dict(ME=me, MAE=mae, RMSE=rmse, r=r, R2=R2, MAPE=mape)
+
+def print_stats(label, y_true, y_pred):
+    m = stats(y_true, y_pred)
+    print(f"{label}:")
+    for k in ["ME","MAE","RMSE","r","R2","MAPE"]:
+        print(f"  {k:>4s} = {m[k]:.4f}")
+    print()
+
+# Masks for subsets
+mask_all = (tss_array >= 100) & (tss_array <= 20000)
+mask_5k  = (tss_array >= 100) & (tss_array <= 5000)
+
+print("=== Metrics vs simulation ===\n")
+print("-- All distances (100–20000 bp) --")
+print_stats("Best (φ_stall + cap)", v_sim[mask_all], v_best_arr[mask_all])
+print_stats("Upstream-only (min(v_up,vmax))", v_sim[mask_all], v_up_only_arr[mask_all])
+
+print("-- Up to 5 kb (100–5000 bp) --")
+print_stats("Best (φ_stall + cap)", v_sim[mask_5k], v_best_arr[mask_5k])
+print_stats("Upstream-only (min(v_up,vmax))", v_sim[mask_5k], v_up_only_arr[mask_5k])
+
+# ---------------- Plot (no saving) ----------------
+plt.figure(figsize=(8,5))
+plt.plot(tss_array, v_sim, 'ko-', label='Simulation')
+plt.plot(tss_array, v_best_arr, 'd-', label='Best: Corrected (φ_stall) + cap')
+plt.plot(tss_array, v_up_only_arr, 's--', label='Upstream-only: min(v_up, vmax)')
+plt.xscale('log')
+plt.xlabel('TSS distance d (bp)')
+plt.ylabel('Elongation velocity (bp/s)')
+plt.title('Best curve vs Upstream-only baseline')
+plt.grid(True, which='both', linestyle=':')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+

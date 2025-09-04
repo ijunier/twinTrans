@@ -1,0 +1,56 @@
+import numpy as np
+import pandas as pd
+from scipy.special import erf, erfc
+
+# ————— Parâmetros do seu modelo —————
+lambda_ns, lambda_ns_g = 1e-4, 1e-4
+Lambda_s, Lambda_s_g   = 1.0, 2.0
+phi, L, v_max, G, A    = 1/10.5, 520, 25, 18.5, 300
+sigma_active, sigma_stall = -0.05, -G/A
+dt = 1e-3  # passo de tempo
+Nrep = 200  # réplicas por ponto
+
+def passo_modelo(D, c_noise):
+    lam_ns_tot = lambda_ns*D + 0.5*lambda_ns_g*D
+    # achar sigma_bar estacionário (igual sua função)
+    sigma_bar = -0.06
+    for _ in range(50):
+        k = lam_ns_tot + (A*phi*v_max)/G
+        var_s = (c_noise/D)/k
+        pI = 0.5*(1 + erf((sigma_active - sigma_bar)/np.sqrt(2*var_s)))
+        pG = 0.5*erfc((sigma_stall  - sigma_bar)/np.sqrt(2*var_s))
+        lam0 = lam_ns_tot + Lambda_s*pI + 0.5*Lambda_s_g*pG
+        v_eff = v_max*(1 - A*sigma_bar/G)
+        sigma_bar = phi*v_eff/lam0
+    return lam_ns_tot, sigma_bar
+
+def simulate_one(D, c_noise):
+    lam_ns_tot, sigma_bar_eq = passo_modelo(D, c_noise)
+    x, t = 0.0, 0.0
+    while x < L:
+        # recalcula var_s e sigma_bar a cada passo (se quiser)
+        k = lam_ns_tot + (A*phi*v_max)/G
+        var_s = (c_noise/D)/k
+        # torque com ruído
+        sigma = sigma_bar_eq + np.sqrt(var_s)*np.random.randn()
+        # velocidade instantânea
+        v = v_max*(1 - A*sigma/G)
+        v = max(v, 0.0)
+        x += v*dt
+        t += dt
+    return t
+
+# grades de parâmetros que você quer testar
+Ds = np.linspace(0.1, 1.0, 10)
+c_noises = [0.01, 0.05, 0.1]
+
+# monte sua tabela
+rows = []
+for D in Ds:
+    for c in c_noises:
+        ts = [simulate_one(D, c) for _ in range(Nrep)]
+        rows.append({'D': D, 'c_noise': c, 'T_sim': np.mean(ts)})
+
+df = pd.DataFrame(rows)
+df.to_csv('simulation_results.csv', index=False)
+print("Salvo em simulation_results.csv")

@@ -1,0 +1,154 @@
+# Implement the friend's model and compare vs previous curves and simulation.
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ------------------ Data (simulation) ------------------
+tss_array = np.array([100,200,250,300,500,1000,2000,3000,4000,5000,8000,10000,12000,14000,16000,18000,20000])
+T_real_array = np.array([
+    108.995808, 105.930240, 103.515472, 102.044444, 94.464468, 82.989236,
+    75.767280, 70.988056, 68.822540, 67.034956, 62.073332, 59.406952,
+    57.413964, 55.752504, 54.484696, 53.625760, 52.447332
+])
+L = 900.0
+v_sim = L / T_real_array
+
+# P_OC for A=300
+P_OC = np.array([0.746, 0.767, 0.780, 0.796, 0.843, 0.943, 0.982, 0.993, 0.998, 0.998, 1.000, 0.999, 1.000, 1.000, 1.000, 1.000, 1.000])
+
+# ------------------ Parameters (A=300, "medium") ------------------
+n = 10.5
+vmax = 25.0
+Lambda_s = 1.0          # specific TopoI upstream (1/s)
+lambda_ns = 1e-4        # non-specific upstream (per bp per s)
+G = 18.5
+A = 300.0
+sigma0 = -0.05
+sigma_stall = -G / A
+W = abs(sigma0 - sigma_stall)  # ~0.011667
+
+# Downstream (gyrase) parameters
+Lambda_g = 2.0             # specific gyrase (1/s)
+lambda_ns_g = 1e-4         # non-specific gyrase per bp/s
+L_down = 520.0             # downstream domain length (bp)
+
+# ------------------ Previous models (for plotting together) ------------------
+gap = sigma0 - sigma_stall
+T_run = n / vmax
+
+def t_act_linear(d):
+    return min((gap * d) / vmax, T_run)
+
+def v_model_cap_specific(d):
+    tact = t_act_linear(d)
+    val = n / (T_run + np.exp(-Lambda_s * tact) / Lambda_s)
+    return min(n * Lambda_s, val, vmax)
+
+def v_model_nocap_ns_linear(d):
+    tact = t_act_linear(d)
+    phi = tact / T_run
+    Lam_eff = Lambda_s + lambda_ns * d * phi
+    val = n / (T_run + np.exp(-Lam_eff * tact) / Lam_eff)
+    return val
+
+d_down_eff = 900 + 520
+def f_up(d):
+    return d_down_eff / (d + d_down_eff)
+
+def t_act_sharing(d):
+    return min((gap * d) / (vmax * f_up(d)), T_run)
+
+def v_model_nocap_ns_sharing(d):
+    tact = t_act_sharing(d)
+    phi = tact / T_run
+    Lam_eff = Lambda_s + lambda_ns * d * phi
+    val = n / (T_run + np.exp(-Lam_eff * tact) / Lam_eff)
+    return val
+
+def v_model_poc_gated(d, poc):
+    Lam_eff = Lambda_s * poc + (lambda_ns * d * poc)
+    mu = Lam_eff * T_run
+    val = n / (T_run + np.exp(-mu) / max(Lam_eff, 1e-12))
+    return val
+
+# ------------------ Friend's model ------------------
+def phi_geom(tss):
+    return (W * tss) / (W * tss + n)
+
+def R_up(tss):
+    return Lambda_s + lambda_ns * tss
+
+def v_up_friend(tss):
+    phi = phi_geom(tss)
+    denom_bp = (vmax / R_up(tss)) + n * (1 - phi)
+    return n * vmax / denom_bp
+
+def v_down_friend():
+    # R is removal rate in Lk/s
+    R = 2.0 * (Lambda_g + lambda_ns_g * L_down)
+    # v_down = (n*vmax*R)/(vmax + n*R)
+    return (n * vmax * R) / (vmax + n * R)
+
+v_down_const = v_down_friend()
+
+def v_friend(tss):
+    return min(v_up_friend(tss), v_down_const, vmax)
+
+v_friend_arr = np.array([v_friend(float(d)) for d in tss_array])
+
+# ------------------ Build previous curves (for joint plot) ------------------
+v_cap   = np.array([v_model_cap_specific(float(d)) for d in tss_array])
+v_nlin  = np.array([v_model_nocap_ns_linear(float(d)) for d in tss_array])
+v_share = np.array([v_model_nocap_ns_sharing(float(d)) for d in tss_array])
+v_poc   = np.array([v_model_poc_gated(float(d), float(p)) for d, p in zip(tss_array, P_OC)])
+
+# ------------------ Stats ------------------
+def stats(y_true, y_pred):
+    err = y_pred - y_true
+    me  = np.mean(err)
+    mae = np.mean(np.abs(err))
+    rmse = np.sqrt(np.mean(err**2))
+    r = np.corrcoef(y_true, y_pred)[0,1]
+    sse = np.sum((y_true - y_pred)**2)
+    sst = np.sum((y_true - np.mean(y_true))**2)
+    R2 = 1 - sse/sst
+    mape = np.mean(np.abs(err / y_true)) * 100
+    return dict(ME=me, MAE=mae, RMSE=rmse, r=r, R2=R2, MAPE=mape)
+
+mask5  = tss_array <= 5000
+mask20 = tss_array <= 20000
+
+stats_friend5  = stats(v_sim[mask5],  v_friend_arr[mask5])
+stats_friend20 = stats(v_sim[mask20], v_friend_arr[mask20])
+
+# also compute for the four previous for comparison (up to 20 kb, but user also asked up to 5 kb earlier)
+def pack_stats(name, y):
+    return (name, stats(v_sim[mask5], y[mask5]), stats(v_sim[mask20], y[mask20]))
+
+comparison = [
+    pack_stats("CAP specific-only", v_cap),
+    pack_stats("NO-CAP linear (+ns)", v_nlin),
+    pack_stats("P_OC-gated (+ns)", v_poc),
+    pack_stats("NO-CAP + torque sharing (+ns)", v_share),
+    pack_stats("Friend model (up+geom & gyr cap)", v_friend_arr),
+]
+
+# ------------------ Plot ------------------
+plt.figure(figsize=(7.8,4.8))
+plt.plot(tss_array, v_sim,     'o-',  label='Simulation')
+plt.plot(tss_array, v_cap,     's--', label='CAP specific-only')
+plt.plot(tss_array, v_nlin,    '^:',  label='NO-CAP linear (+ns)')
+plt.plot(tss_array, v_share,   'x-',  label='NO-CAP + torque sharing (+ns)')
+plt.plot(tss_array, v_poc,     'd-.', label='P_OC-gated (+ns)')
+plt.plot(tss_array, v_friend_arr, 'h-', label="Friend's model (geom+gyr cap)")
+plt.xscale('log')
+plt.xlabel('TSS distance d (bp)')
+plt.ylabel('Elongation velocity (bp/s)')
+plt.title('Velocity vs TSS — Five models vs simulation (A=300)')
+plt.grid(True, which='both', linestyle=':')
+plt.legend(fontsize=8)
+plt.tight_layout()
+#out_path = "/mnt/data/velocity_vs_tss_five_models_A300.png"
+#plt.savefig(out_path, dpi=160)
+plt.show()
+
+#out_path, v_down_const, stats_friend5, stats_friend20, comparison

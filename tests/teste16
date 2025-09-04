@@ -1,0 +1,79 @@
+import os
+import glob
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- 1) Ajuste este caminho para onde estão suas pastas de simulação ---
+base_dir = 'C:/Users/abarb/twinTrans/model_simulations'
+
+# --- 2) Mapeamento flags de linha de comando → nome de parâmetro amigável ---
+param_flags = {
+    '-kb':       'kb',
+    '-ko':       'ko',
+    '-ke':       'ke',
+    '-tss':      'tss',
+    '-lansT':    'nstopo1',
+    '-LasT':     'stopo1',
+    '-lansG':    'nsgyrase',
+    '-LasG':     'sgyrase',
+    '-A':        'A',
+}
+
+results = []
+
+# --- 3) Percorre cada subpasta padrao_* ---
+for folder in glob.glob(os.path.join(base_dir, 'padrao*')):
+    param_name = None
+    param_value = None
+
+    # 3a) Extrai a linha de comando usada em param_var.txt
+    with open(os.path.join(folder, 'param_var.txt'), 'r') as f:
+        for line in f:
+            for flag, nice in param_flags.items():
+                if flag in line:
+                    toks = line.strip().split()
+                    try:
+                        idx = toks.index(flag)
+                        val = float(toks[idx + 1])
+                        param_name  = nice
+                        param_value = val
+                        break
+                    except Exception:
+                        continue
+            if param_name:
+                break
+
+    # 3b) Lê mean_properties.txt (formato CSV simples) e pega última linha
+    dfm = pd.read_csv(os.path.join(folder, 'mean_properties.txt'), sep=r'\s+|,', engine='python')
+    last = dfm.iloc[-1]
+
+    results.append({
+        'param':       param_name,
+        'value':       param_value,
+        'bind_time':   last['mean_bind_time'],
+        'ocf_time':    last['mean_ocf_time'],
+        'esc_time':    last['mean_esc_time'],
+        'init_time':   last['mean_init_time'],
+    })
+
+# --- 4) Constrói o DataFrame final ---
+df = pd.DataFrame(results)
+
+# --- 5) Para cada componente de tempo, plota vs valor do parâmetro ---
+for comp in ['bind_time', 'ocf_time', 'esc_time', 'init_time']:
+    plt.figure(figsize=(6,4))
+    for p in df['param'].unique():
+        sub = df[df['param']==p].sort_values('value')
+        plt.plot(sub['value'], sub[comp], 'o-', label=p)
+    plt.xscale('log')
+    plt.xlabel('Valor do parâmetro (escala log)')
+    plt.ylabel(f'Tempo médio de {comp} (s)')
+    plt.title(f'Mean {comp} vs parâmetro')
+    plt.legend()
+    plt.grid(True, which='both', ls='--', lw=0.5)
+    plt.tight_layout()
+    plt.show()
+
+# --- (Opcional) Veja o DataFrame resumido na tela ---
+print(df)
+

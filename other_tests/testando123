@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+import os, re, glob, math
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# ========= CONFIG =========
+ROOT   = "results_final_ko_100"   # raiz: kb_*/kun_*/tss_*/
+TSS    = "tss_1000"               # mude p/ "tss_100" ou "tss_5000" se quiser
+M      = 1                        # "single-RNAP": use 1 (ou 3 p/ reduzir ruído)
+KUN_REF = 0.070711                # opcional: trilho de comparação
+GENE_LEN_DEFAULT = 900.0
+
+def parse_val(name, key):
+    m = re.search(rf"{key}_([0-9Ee+\-\.]+)", name)
+    return float(m.group(1)) if m else None
+
+def read_mean_props(path):
+    L = GENE_LEN_DEFAULT
+    pv = os.path.join(os.path.dirname(path), "param_var.txt")
+    if os.path.isfile(pv):
+        with open(pv) as f:
+            for line in f:
+                if ("gene_length" in line) or ("L_gene" in line):
+                    try: L = float(line.split("=")[1])
+                    except: pass
+                    break
+    try:    df = pd.read_csv(path, sep="\t")
+    except: df = pd.read_csv(path, sep=r"\s+")
+    df = df.sort_values("transcripts_nb")
+    return df, L
+
+def N_from_tail(df, tail=5):
+    taildf = df.tail(tail)
+    if {"prod_rate","mean_elong_time"}.issubset(taildf.columns):
+        return float((taildf["prod_rate"] * taildf["mean_elong_time"]).mean())
+    return np.nan
+
+def first_wave_speed(df, L_bp, m=M):
+    d = df[df["transcripts_nb"] <= m][["transcripts_nb","mean_elong_time"]].dropna()
+    if d.empty: return np.nan
+    d = d.set_index("transcripts_nb")["mean_elong_time"]
+    vs = []
+    for n in range(1, int(d.index.max())+1):
+        if n not in d.index: break
+        if n == 1:
+            En = float(d.loc[1])
+        else:
+            if (n-1) not in d.index: break
+            En = n*float(d.loc[n]) - (n-1)*float(d.loc[n-1])
+        if En <= 0: continue
+        vs.append(L_bp / En)
+    return float(np.median(vs)) if vs else np.nan
+
+def bracket_k_for_N1(k_list, N_list, target=1.0):
+    k_arr = np.array(k_list, dtype=float)
+    N_arr = np.array(N_list, dtype=float)
+    # ordena por k
+    idx = np.argsort(k_arr); k_arr, N_arr = k_arr[idx], N_arr[idx]
+    # remove NaNs
+    valid = ~np.isnan(N_arr)
+    k_arr, N_arr = k_arr[valid], N_arr[valid]
+    if len(k_arr) < 2: return (None, False, None, None, None, None)
+    # métricas diagnósticas
+    Nmin, Nmax = float(np.min(N_arr)), float(np.max(N_arr))
+    mono = np.all(np.diff(N_arr) <= 0) or np.all(np.diff(N_arr) >= 0)
+    # procura mudança de sinal em N-1
+    s = N_arr - target
+    for i in range(len(k_arr)-1):
+        if s[i] == 0:
+            return (k_arr[i], True, Nmin, Nmax, mono, (k_arr, N_arr))
+        if s[i]*s[i+1] < 0:
+            # interpola em log(k)
+            x1, x2 = math.log(k_arr[i]), math.log(k_arr[i+1])
+            y1, y2 = s[i], s[i+1]
+            if (y2 - y1) == 0:
+                break
+            x_star = x1 + (0 - y1)*(x2 - x1)/(y2 - y1)
+            return (math.exp(x_star), True, Nmin, Nmax, mono, (k_arr, N_arr))
+    # sem bracketing → pega o MAIS PRÓXIMO de 1 (sempre definido)
+    j = int(np.argmin(np.abs(N_arr - target)))
+    return (float(k_arr[j]), False, Nmin, Nmax, mono, (k_arr, N_arr))
+
+rows = []
+diag = []  # diagnóstico por kb
+
+for kb_dir in sorted(glob.glob(os.path.join(ROOT, "kb_*")), key=lambda p: parse_val(p,"kb")):
+    kb = parse_val(kb_dir, "kb")
+    # coleta (k_un, N)
+    kun_list, N_list = [], []
+    for kun_dir in sorted(glob.glob(os.path.join(kb_dir, "kun_*")), key=lambda p: parse_val(p,"kun")):
+        kun = parse_val(kun_dir, "kun")
+        mp  = os.path.join(kun_dir, TSS, "mean_properties.txt")
+        if not os.path.isfile(mp): continue
+        df, L = read_mean_props(mp)
+        N = N_from_tail(df, tail=5)
+        kun_list.append(kun); N_list.append(N)
+
+    kstar, bracketed, Nmin, Nmax, mono, curve = bracket_k_for_N1(kun_list, N_list, target=1.0)
+
+    # calcula v_wave @ k*
+    v_kstar, n_used_star = np.nan, 0
+    if (kstar is not None) and (len(kun_list)>0):
+        # pega o arquivo mais próximo de kstar (em log)
+        kun_near = min(kun_list, key=lambda x: abs(math.log(x) - math.log(kstar)))
+        mp = os.path.join(kb_dir, f"kun_{kun_near:g}", TSS, "mean_properties.txt")
+        if os.path.isfile(mp):
+            df, L = read_mean_props(mp)
+            v_kstar = first_wave_speed(df, L, M)
+            n_used_star = len(df[df["transcripts_nb"]<=M])
+
+    # trilho fixo (opcional)
+    v_kref, n_used_ref = np.nan, 0
+    mp_ref = os.path.join(kb_dir, f"kun_{KUN_REF:g}", TSS, "mean_properties.txt")
+    if os.path.isfile(mp_ref):
+        df_ref, Lr = read_mean_props(mp_ref)
+        v_kref = first_wave_speed(df_ref, Lr, M)
+        n_used_ref = len(df_ref[df_ref["transcripts_nb"]<=M])
+
+    rows.append({
+        "kb": kb,
+        "kun_star": kstar,
+        "bracketed": bool(bracketed),
+        "v_wave_kstar": v_kstar,
+        "n_used_star": n_used_star,
+        "v_wave_kref": v_kref,
+        "n_used_ref": n_used_ref,
+        "Nmin": Nmin, "Nmax": Nmax, "monotonic": mono
+    })
+    if curve is not None:
+        karr, Narr = curve
+        diag.append({
+            "kb": kb, "Nmin": Nmin, "Nmax": Nmax, "monotonic": mono,
+            "kmin": float(np.min(karr)), "kmax": float(np.max(karr))
+        })
+
+dat = pd.DataFrame(rows).sort_values("kb")
+diag_df = pd.DataFrame(diag).sort_values("kb")
+
+print("\n=== Resultado (com k* por proximidade de N=1) ===")
+print(dat.to_string(index=False))
+
+print("\n=== Diagnóstico N(k_un) por kb ===")
+print(diag_df.to_string(index=False))
+
+# ---- plots
+plt.figure(figsize=(6.6,4.2))
+plt.bar(dat["kb"], dat["v_wave_kstar"], width=dat["kb"]*0.22, label="v_wave @ k* (N≈1, nearest)")
+if dat["v_wave_kref"].notna().any():
+    plt.plot(dat["kb"], dat["v_wave_kref"], "o--", label=f"v_wave @ kun={KUN_REF:g}")
+# marca kb sem bracketing
+mask_no = ~dat["bracketed"]
+plt.scatter(dat["kb"][mask_no], dat["v_wave_kstar"][mask_no], marker="x", color="crimson", label="sem bracketing")
+plt.xscale("log"); plt.ylim(bottom=0)
+plt.xticks(dat["kb"], [f"{v:.3g}" for v in dat["kb"]], rotation=45)
+plt.xlabel("k_b (1/s)  ~  [IPTG]")
+plt.ylabel(f"v_wave (bp/s) — M={M}")
+plt.title(f"{TSS}: velocidade da primeira leva (≈single RNAP)")
+plt.legend(); plt.tight_layout(); plt.show()
+

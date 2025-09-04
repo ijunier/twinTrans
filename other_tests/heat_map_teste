@@ -1,0 +1,67 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator, ScalarFormatter
+from pathlib import Path
+
+ROOT = Path("results_final_kb_0.453")
+GENE_LEN = 900.0
+
+dados = []
+for ko_dir in sorted(ROOT.glob("ko_*")):
+    ko = float(ko_dir.name.split("_")[1])
+    for kun_dir in sorted(ko_dir.glob("kun_*")):
+        kun = float(kun_dir.name.split("_")[1])
+        for tss_dir in sorted(kun_dir.glob("tss_*")):
+            tss = int(tss_dir.name.split("_")[1])
+            df = pd.read_csv(tss_dir / "mean_properties.txt", sep=r"\s+")
+            if "transcripts_nb" in df.columns:
+                i = df["transcripts_nb"].idxmax()
+                tempo = df.at[i, "mean_elong_time"]
+            else:
+                tempo = df["mean_elong_time"].iloc[-1]
+            vel = GENE_LEN / tempo
+            dados.append({"k_o": ko, "k_unbinding": kun, "tss": tss, "vel": vel})
+
+df = pd.DataFrame(dados)
+
+# Cria figura
+tss_list = sorted(df["tss"].unique())
+fig, axs = plt.subplots(1, len(tss_list), figsize=(5 * len(tss_list), 4))
+
+for ax, tss in zip(axs, tss_list):
+    sub = df[df["tss"] == tss]
+
+    # Cria matriz (pivot)
+    tabela = sub.pivot(index="k_o", columns="k_unbinding", values="vel")
+    tabela = tabela.sort_index(ascending=False)  
+
+    im = ax.imshow(tabela, cmap="viridis", aspect='auto',
+                   extent=[
+                       tabela.columns.min(), tabela.columns.max(),
+                       tabela.index.min(), tabela.index.max()
+                   ],
+                   origin="lower",
+                   interpolation="nearest")
+
+    # Eixos em log
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+
+    ax.set_title(f"TSS = {tss} bp")
+    ax.set_xlabel("k_unbinding (1/s)")
+    if ax == axs[0]:
+        ax.set_ylabel("k_o (1/s)")
+
+    # Formatador bonito nos ticks
+    ax.xaxis.set_major_locator(LogLocator(base=10))
+    ax.yaxis.set_major_locator(LogLocator(base=10))
+    ax.xaxis.set_major_formatter(ScalarFormatter())
+    ax.yaxis.set_major_formatter(ScalarFormatter())
+
+# Colorbar
+cbar = fig.colorbar(im, ax=axs, orientation="vertical", label="Velocity (pb/s)")
+plt.suptitle("Heatmap of the elongation velocity\n(Axes in log)", y=1.05, fontsize=14)
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.show()
+

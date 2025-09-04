@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+import os, re, glob, numpy as np, pandas as pd, matplotlib.pyplot as plt
+
+# ---------------- CONFIG ----------------
+ROOT      = "results_final_kb_0.453"
+KO_TARGET = 0.238731
+KB        = 0.453         # s^-1
+KE        = 100.0         # s^-1
+L_GENE    = 900.0         # bp
+L_CLEAR   = 30.0          # bp
+TSS_LIST  = [100, 1000, 5000]
+
+# P_OC(d) medidos/estimados (A=300) — ajuste se tiver valores mais precisos
+POC = {100:0.746, 1000:0.943, 5000:0.998}
+
+# Como estimar v_eff no termo de clearance:
+VEFF_MODE = "both"  # "plateau", "local", ou "both"
+
+# ------------- helpers ------------------
+def num_from_name(prefix, name):
+    m = re.search(rf"{prefix}_([\d\.Ee+-]+)$", name)
+    return float(m.group(1)) if m else None
+
+def nearest_folder(base, prefix, target):
+    cands = []
+    for d in glob.glob(os.path.join(base, f"{prefix}_*")):
+        val = num_from_name(prefix, os.path.basename(d))
+        if val is not None:
+            cands.append((abs(val-target), val, d))
+    if not cands: return None, None
+    cands.sort()
+    return cands[0][2], cands[0][1]
+
+def read_mp(path):
+    try:    df = pd.read_csv(path, sep="\t")
+    except: df = pd.read_csv(path, sep=r"\s+")
+    if "transcripts_nb" in df.columns:
+        df = df.sort_values("transcripts_nb")
+    return df
+
+def velocity_from_mp(df):
+    # usa n=10000 se existir; senão, última linha
+    if "mean_elong_time" not in df.columns: return np.nan
+    if "transcripts_nb" in df.columns and (df["transcripts_nb"]==10000).any():
+        row = df[df["transcripts_nb"]==10000].iloc[-1]
+    else:
+        row = df.iloc[-1]
+    T = float(row["mean_elong_time"])
+    return L_GENE / T if T>0 else np.nan
+
+def curvature_knee(k, v):
+    """ Determina joelho por inflexão (d2/dx2 ~ 0) em x = log10(k).
+        Retorna k_inflex, k_maxslope e arrays dx1, dx2 para diagnóstico. """
+    k = np.asarray(k); v = np.asarray(v)
+    mask = np.isfinite(k) & np.isfinite(v) & (k>0)
+    k, v = k[mask], v[mask]
+    if len(k) < 4: return np.nan, np.nan, None, None
+    x = np.log10(k)
+    # derivadas centrais (malha quase uniforme em log)
+    dx = np.diff(x).mean()
+    # 1ª deriv: central
+    dv = np.zeros_like(v); dv[1:-1] = (v[2:] - v[:-2])/(2*dx)
+    # 2ª deriv: central
+    d2 = np.zeros_like(v); d2[1:-1] = (v[2:] - 2*v[1:-1] + v[:-2])/(dx*dx)
+    # inflexão: zero-cross de d2
+    idx = np.where(np.sign(d2[1:]) != np.sign(d2[:-1]))[0]
+    k_inflex = np.nan
+    if len(idx) > 0:
+        i = idx[np.argmax(np.abs(d2[idx+1]-d2[idx]))]  # maior mudança de curvatura
+        # interpolação linear em d2 entre i and i+1
+        a, b = d2[i], d2[i+1]
+        xi = x[i] - a*(x[i+1]-x[i])/(b-a)
+        k_inflex = 10**xi
+    # ponto de máxima inclinação (|dv/dx|)
+    i_slope = np.nanargmax(np.abs(dv[1:-1])) + 1 if len(v)>3 else np.nan
+    k_slope = k[i_slope] if isinstance(i_slope, (int, np.integer)) else np.nan
+    return k_inflex, k_slope, dv, d2
+
+def kc_theory(tss, v_eff):
+    poc = POC.get(tss, np.nan)
+    if not np.isfinite(poc) or not np.isfinite(v_eff) or v_eff<=0: return np.nan
+    Delta = (1/KB) + (1/(ko_val*poc)) + (1/KE) + (L_CLEAR / v_eff)
+    return 1.0/Delta
+
+# ------------- pick ko --------------------
+ko_dir, ko_val = nearest_folder(ROOT, "ko", KO_TARGET)
+if ko_dir is None: raise FileNotFoundError("ko_* não encontrado.")
+print(f"Usando ko = {ko_val}  ({ko_dir})")
+
+# ------------- coletar curvas -------------
+curves = {}
+for kun_path in sorted(glob.glob(os.path.join(ko_dir, "kun_*")),
+                       key=lambda p: num_from_name("kun", os.path.basename(p))):
+    kun = num_from_name("kun", os.path.basename(kun_path))
+    if kun is None: continue
+    for tss in TSS_LIST:
+        mp = os.path.join(kun_path, f"tss_{tss}", "mean_properties.txt")
+        if not os.path.isfile(mp): continue
+        v = velocity_from_mp(read_mp(mp))
+        if not np.isfinite(v): continue
+        curves.setdefault(tss, []).append((kun, v))
+
+for tss in list(curves.keys()):
+    arr = np.array(sorted(curves[tss], key=lambda kv: kv[0]), dtype=float)
+    curves[tss] = (arr[:,0], arr[:,1])
+
+# ------------- calcular joelhos & kc -------------
+summary = []
+plt.figure(figsize=(9,5))
+colors = {100:"#1f77b4", 1000:"#ff7f0e", 5000:"#2ca02c"}
+
+for tss in TSS_LIST:
+    if tss not in curves: continue
+    kun, vel = curves[tss]
+    plt.plot(kun, vel, "o-", lw=1.8, ms=4, color=colors[tss], label=f"TSS {tss} bp")
+    # joelhos empíricos
+    k_inf, k_slope, dv, d2 = curvature_knee(kun, vel)
+    if np.isfinite(k_inf):
+        plt.axvline(k_inf, color=colors[tss], ls=":", lw=1.8,
+                    label=f"k_c emp (inflex, {tss}) ≈ {k_inf:.3g}")
+    if np.isfinite(k_slope):
+        plt.axvline(k_slope, color=colors[tss], ls="-.", lw=1.5,
+                    label=f"k_c emp (máx|dv/dlogk|, {tss}) ≈ {k_slope:.3g}")
+    # v_eff modos
+    kc_th_plateau = kc_th_local = np.nan
+    # plateau: usa o 1º ponto da curva
+    v_plateau = vel[0]
+    kc_th_plateau = kc_theory(tss, v_plateau)
+    plt.axvline(kc_th_plateau, color=colors[tss], ls="--", lw=1.5,
+                label=f"k_c th (platô, {tss}) ≈ {kc_th_plateau:.3g}")
+    # local: média de 2-3 pontos imediatamente à esquerda do joelho de inflexão
+    if np.isfinite(k_inf):
+        left = kun < k_inf
+        if left.sum() >= 2:
+            v_local = np.mean(vel[left][-3:]) if left.sum()>=3 else np.mean(vel[left])
+            kc_th_local = kc_theory(tss, v_local)
+            plt.axvline(kc_th_local, color=colors[tss], ls=(0,(1,2)), lw=1.5,
+                        label=f"k_c th (local, {tss}) ≈ {kc_th_local:.3g}")
+    summary.append([tss, v_plateau, kc_th_plateau, k_inf, k_slope, kc_th_local])
+
+plt.xscale("log"); plt.xlabel("k_unbinding (s$^{-1}$)")
+plt.ylabel("Elongation velocity v (bp/s)")
+plt.title(f"v × k_un (kb={KB}, ko≈{ko_val})\n"
+          "Joelhos: empírico (inflexão :  / máx. inclinação -.) e teórico (-- platô, ·· local)")
+plt.grid(True, which="both", ls=":")
+plt.legend(ncol=2, fontsize=9)
+plt.tight_layout(); plt.show()
+
+df = pd.DataFrame(summary, columns=[
+    "TSS", "v_eff_plateau", "k_c_th_plateau",
+    "k_c_emp_inflex", "k_c_emp_maxslope", "k_c_th_local"
+]).set_index("TSS")
+print("\nResumo:")
+print(df.to_string(float_format=lambda x: f"{x:.4g}"))

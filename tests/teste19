@@ -1,0 +1,74 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Simulation results data
+data = [
+    ("kb", 0.010, 112.563088),
+    ("kb", 0.453,   83.320568),
+    ("kb", 100.0,   82.890564),
+    ("ke", 0.010,   80.036460),
+    ("ke", 10.0,    82.811432),
+    ("ko", 0.010,   80.169580),
+    ("ko", 100.0,   83.420148),
+    ("nsgyrase", 1e-6, 79.606184),
+    ("nstopo1", 1e-6,  90.890096),
+    ("sgyrase", 0.020, 1251.418612),
+    ("stopo1", 0.010,  779.104032),
+    ("tss", 100.0,    109.763228),
+    ("tss", 5000.0,   66.977648),
+]
+
+df = pd.DataFrame(data, columns=['param', 'value', 'elong_time_sim'])
+
+# Default model parameters
+gene_L   = 900.0   # gene length
+Ldown    = 520.0   # downstream distance
+v_max    = 25.0
+G        = 18.5
+A        = 300.0
+phi      = 1/10.5
+lambda_ns_def   = 1e-4
+lambda_ns_g_def = 1e-4
+Lambda_s_def    = 1.0
+Lambda_s_g_def  = 2.0
+tss_def         = 1000.0
+
+def calc_theoretical(row):
+    # 1) qual tss estamos usando?
+    tss = row['value'] if row['param']=='tss' else tss_def
+    # 2) compr. total do domínio
+    D_dom = tss + gene_L + Ldown
+
+    # 3) TopoI/Gyrase – pega variação se for aquela taxa que mudamos
+    lambda_ns   = row['value'] if row['param']=='nstopo1' else lambda_ns_def
+    lambda_ns_g = row['value'] if row['param']=='nsgyrase' else lambda_ns_g_def
+    Lambda_s    = row['value'] if row['param']=='stopo1' else Lambda_s_def
+    Lambda_s_g  = row['value'] if row['param']=='sgyrase' else Lambda_s_g_def
+
+    # 4) taxa efetiva total de relaxação
+    lambda0 = (lambda_ns   * D_dom + Lambda_s) \
+            + 2*(lambda_ns_g * D_dom + Lambda_s_g)
+
+    # 5) velocidade efetiva e tempo de elongação
+    v_eff = v_max / (1 + (A * phi * v_max) / (G * lambda0))
+    return gene_L / v_eff
+
+df['elong_time_theo'] = df.apply(calc_theoretical, axis=1)
+
+# Mostrar resultados
+print(df[['param','value','elong_time_sim','elong_time_theo']])
+
+# Plot
+plt.figure(figsize=(10,6))
+idx = np.arange(len(df))
+plt.plot(idx, df['elong_time_sim'],   'o-', label='Simulação')
+plt.plot(idx, df['elong_time_theo'],  's--', label='Teórico')
+plt.xticks(idx, [f"{p}:{v}" for p,v in zip(df['param'],df['value'])],
+           rotation=45, ha='right')
+plt.ylabel('Tempo de elongação (s)')
+plt.title('Simulado vs Teórico (com domínio completo)')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
